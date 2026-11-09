@@ -1,0 +1,19 @@
+{
+  "name": "Ekita OrderVision • Captura de Pedidos IA Multi-Tenant",
+  "short_name": "Ekita Vision",
+  "description": "PWA Móvil-First Multi-Tenant para captura de pedidos por encargo (Shein/Internacional) con Visión Artificial Gemini 2.5 Flash y cotejo de almacén.",
+  "start_url": "/orders/new",
+  "display": "standalone",
+  "background_color": "#090d16",
+  "theme_color": "#f43f5e",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icons/ekita-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

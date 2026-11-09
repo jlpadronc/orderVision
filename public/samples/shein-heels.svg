@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300" fill="none">
+  <rect width="240" height="300" rx="20" fill="#111827"/>
+  <rect x="16" y="16" width="208" height="185" rx="14" fill="#1e1b4b"/>
+  <path d="M66 142c28 0 48 22 86 22h24v14H66v-36z" fill="#a855f7"/>
+  <rect x="16" y="214" width="145" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="16" y="238" width="76" height="22" rx="6" fill="#f43f5e"/>
+  <text x="26" y="254" fill="#ffffff" font-family="sans-serif" font-size="13" font-weight="bold">$21.00</text>
+  <text x="102" y="253" fill="#9ca3af" font-family="sans-serif" font-size="12" text-decoration="line-through">$26.50</text>
+  <rect x="16" y="268" width="120" height="18" rx="5" fill="#1f2937"/>
+  <text x="24" y="281" fill="#d8b4fe" font-family="sans-serif" font-size="10">EUR 38 • Negro Mate</text>
+</svg>
+

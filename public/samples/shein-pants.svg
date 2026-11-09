@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 300" fill="none">
+  <rect width="240" height="300" rx="20" fill="#111827"/>
+  <rect x="16" y="16" width="208" height="185" rx="14" fill="#451a03"/>
+  <path d="M88 45h64l14 134h-36l-10-82-10 82H74L88 45z" fill="#f59e0b"/>
+  <rect x="16" y="214" width="150" height="14" rx="7" fill="#f3f4f6"/>
+  <rect x="16" y="238" width="76" height="22" rx="6" fill="#f43f5e"/>
+  <text x="26" y="254" fill="#ffffff" font-family="sans-serif" font-size="13" font-weight="bold">$24.00</text>
+  <text x="102" y="253" fill="#9ca3af" font-family="sans-serif" font-size="12" text-decoration="line-through">$31.00</text>
+  <rect x="16" y="268" width="110" height="18" rx="5" fill="#1f2937"/>
+  <text x="24" y="281" fill="#fde68a" font-family="sans-serif" font-size="10">Talla: S • Beige Arena</text>
+</svg>
+

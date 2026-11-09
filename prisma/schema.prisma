@@ -1,0 +1,170 @@
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPERADMIN
+  TENANT_ADMIN
+  TENANT_OPERATOR
+}
+
+enum BatchStatus {
+  OPEN_FOR_ORDERS        // Abierto recibiendo carritos de clientes
+  PURCHASED_AT_ORIGIN    // Lote comprado por el negocio en Shein/proveedor
+  IN_TRANSIT             // Consolidado viajando al país destino
+  RECEIVED_IN_WAREHOUSE  // Lote físico en almacén para desglose y cotejo
+  COMPLETED              // Todos los clientes del lote entregados y liquidados
+}
+
+enum OrderStatus {
+  DRAFT                    // En armado de carrito
+  CONFIRMED_DEPOSIT_PAID   // 50% pagado y comprobante adjunto
+  PURCHASED_AT_ORIGIN      // Pedido comprado en página de Shein/proveedor
+  IN_TRANSIT               // Viajando al país de destino
+  RECEIVED_IN_WAREHOUSE    // En almacén listo para cotejo
+  READY_FOR_DELIVERY       // Validado y listo para entregar
+  COMPLETED                // 100% pagado y entregado
+  CANCELLED
+}
+
+enum PaymentMethod {
+  BINANCE_USDT
+  BANCOLOMBIA
+  NEQUI
+  CASH_USD
+  PAGO_MOVIL_VES
+  ZINLI
+  OTHER
+}
+
+model Tenant {
+  id                String       @id @default(uuid())
+  slug              String       @unique // ej: "ekita-shop"
+  name              String
+  currency          String       @default("USD")
+  defaultDepositPct Float        @default(50.00)
+  active            Boolean      @default(true)
+  settings          Json?        // Métodos de pago activos, datos bancarios, tasa de cambio
+  users             User[]
+  customers         Customer[]
+  batches           OrderBatch[]
+  orders            Order[]
+  orderItems        OrderItem[]
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+model User {
+  id           String   @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(TENANT_OPERATOR)
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId])
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fullName  String
+  phone     String   // Número de WhatsApp principal
+  instagram String?
+  notes     String?
+  orders    Order[]
+  createdAt DateTime @default(now())
+
+  @@index([tenantId, phone])
+}
+
+model OrderBatch {
+  id            String      @id @default(uuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  code          String      // ej: "LOTE-001", "LOTE-002", "LOTE-003"
+  name          String      // ej: "Pedido Consolidado #1", "Pedido Consolidado #2"
+  purchaseDate  DateTime    // Fecha de compra por el negocio / fecha de salida del lote
+  status        BatchStatus @default(OPEN_FOR_ORDERS)
+  trackingRef   String?     // Guía macro o referencia de compra en Shein
+  notes         String?
+  orders        Order[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([tenantId, purchaseDate])
+  @@index([tenantId, status])
+}
+
+model Order {
+  id                String         @id @default(uuid())
+  tenantId          String
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batchId           String?
+  batch             OrderBatch?    @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  customerId        String
+  customer          Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  status            OrderStatus    @default(DRAFT)
+  orderDate         DateTime       @default(now())
+
+  // Balances financieros
+  subtotal          Float          @default(0.00)
+  depositRequired   Float          @default(0.00) // 50% automático
+  depositPaid       Boolean        @default(false)
+  depositAmountPaid Float          @default(0.00)
+  balanceDue        Float          @default(0.00) // 50% restante
+  finalPaymentPaid  Boolean        @default(false)
+
+  // Registro de pago inicial (Seña 50%)
+  paymentMethod     PaymentMethod?
+  paymentReference  String?
+  receiptImageUrl   String?        // URL del comprobante de transferencia o pago móvil
+
+  // Registro de liquidación final (Restante 50%)
+  finalPaymentMethod PaymentMethod?
+  finalPaymentRef    String?
+  finalReceiptUrl    String?
+
+  generalNotes      String?
+  items             OrderItem[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([tenantId, batchId])
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+}
+
+model OrderItem {
+  id                   String   @id @default(uuid())
+  tenantId             String
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderId              String
+  order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Datos extraídos por Visión Artificial
+  title                String
+  originalPrice        Float?   // Precio tachado / rayado
+  finalPrice           Float    // Precio de página / venta
+  quantity             Int      @default(1)
+
+  // Especificaciones críticas para cotejo físico
+  size                 String?  // Talla (XS, S, M, L, XL, número de zapato, etc.)
+  color                String?  // Color específico
+  modelVariant         String?  // Código de modelo o variación
+  verificationNotes    String?  // Observaciones al validar cuando llega el paquete
+
+  sourceImageUrl       String?  // Captura enviada por el cliente
+  isPhysicallyVerified Boolean  @default(false) // Check de validación física al recibir
+  createdAt            DateTime @default(now())
+
+  @@index([tenantId, orderId])
+}
