@@ -1,19 +1,20 @@
 import { PrismaClient, Role } from "@prisma/client";
+import { ensureDatabaseSchema, resolvePostgresDatabaseUrl } from "../lib/prisma";
 
+resolvePostgresDatabaseUrl();
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🧹 Limpiando datos previos de la base de datos SQLite...");
-  await prisma.orderItem.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.orderBatch.deleteMany();
-  await prisma.customer.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.tenant.deleteMany();
+  console.log("🔌 Conectando a PostgreSQL y verificando esquema...");
+  await ensureDatabaseSchema();
 
-  console.log("🔐 Creando únicamente el usuario SuperAdmin de la plataforma...");
-  const superAdmin = await prisma.user.create({
-    data: {
+  console.log("🔐 Verificando/creando usuario SuperAdmin de la plataforma...");
+  const superAdmin = await prisma.user.upsert({
+    where: { email: "superadmin@ordervision.app" },
+    update: {
+      role: Role.SUPERADMIN,
+    },
+    create: {
       id: "usr-superadmin-01",
       tenantId: null,
       email: "superadmin@ordervision.app",
@@ -23,13 +24,13 @@ async function main() {
     },
   });
 
-  console.log("✅ Base de datos SQLite inicializada sin datos demo.");
+  console.log("✅ Base de datos PostgreSQL lista.");
   console.log(`   • Usuario SuperAdmin: ${superAdmin.email} (Password: admin123)`);
 }
 
 main()
   .catch((e) => {
-    console.error("❌ Error inicializando la base de datos SQLite:", e);
+    console.error("❌ Error inicializando PostgreSQL:", e);
     process.exit(1);
   })
   .finally(async () => {

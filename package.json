@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "postinstall": "prisma generate",
     "dev": "next dev -p 3002",
-    "build": "next build",
+    "build": "node scripts/vercel-build.mjs",
     "start": "next start -p 3002",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -39,4 +40,3 @@
     "typescript": "^5.8.2"
   }
 }
-

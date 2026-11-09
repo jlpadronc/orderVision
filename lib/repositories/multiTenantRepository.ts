@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { prisma } from "@/lib/prisma";
+import { ensureDatabaseSchema, prisma } from "@/lib/prisma";
 import {
   DEFAULT_FEATURES,
   type AssignOrderBatchSchema,
@@ -239,11 +239,11 @@ function mapPrismaOrderToRecord(o: {
   };
   status: OrderStatusType;
   orderDate: Date;
-  subtotal: number;
-  depositRequired: number;
+  subtotal: unknown;
+  depositRequired: unknown;
   depositPaid: boolean;
-  depositAmountPaid: number;
-  balanceDue: number;
+  depositAmountPaid: unknown;
+  balanceDue: unknown;
   finalPaymentPaid: boolean;
   paymentMethod: PaymentMethodType | null;
   paymentReference: string | null;
@@ -257,8 +257,8 @@ function mapPrismaOrderToRecord(o: {
     tenantId: string;
     orderId: string;
     title: string;
-    originalPrice: number | null;
-    finalPrice: number;
+    originalPrice: unknown;
+    finalPrice: unknown;
     quantity: number;
     size: string | null;
     color: string | null;
@@ -337,6 +337,7 @@ function mapPrismaOrderToRecord(o: {
  * Obtiene todos los tenants (para selector o SuperAdmin).
  */
 export async function listTenants(includeInactive = false): Promise<TenantRecord[]> {
+  await ensureDatabaseSchema();
   const rows = await prisma.tenant.findMany({
     where: includeInactive ? {} : { active: true },
     include: {
@@ -374,6 +375,7 @@ export async function listTenants(includeInactive = false): Promise<TenantRecord
  * Garantiza que exista el usuario SuperAdmin base en SQLite.
  */
 export async function ensureSuperAdminExists(): Promise<void> {
+  await ensureDatabaseSchema();
   const existing = await prisma.user.findFirst({
     where: { role: "SUPERADMIN" },
   });

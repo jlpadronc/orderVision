@@ -17,7 +17,7 @@
 .env.production
 !.env.example
 
-# SQLite local databases & Prisma journals
+# Local SQLite leftovers (if any)
 prisma/*.db
 prisma/*.db-journal
 prisma/*.db-shm
@@ -50,4 +50,3 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-
