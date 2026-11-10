@@ -1,3 +1,9 @@
+import {
+  formatEquivalentSummary,
+  formatMoney,
+} from "@/lib/utils/currency";
+import type { CurrencyType } from "@/lib/validations/schemas";
+
 export interface QuoteExportItem {
   title: string;
   size?: string | null;
@@ -13,23 +19,32 @@ export interface QuoteExportOptions {
   orderId?: string;
   batchLabel?: string | null;
   dateLabel?: string;
+  currency?: CurrencyType | string;
   items: QuoteExportItem[];
   subtotalUsd: number;
   depositPct: number;
   depositUsd: number;
   vesRate?: number;
+  copRate?: number;
   paymentSummary?: string;
 }
 
 /**
  * Genera y descarga una imagen PNG nítida con la cotización formal para el cliente
- * utilizando HTML5 Canvas nativo (sin dependencias pesadas).
+ * utilizando HTML5 Canvas nativo, soportando múltiples monedas (COP, USD, VES).
  */
 export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> {
+  const currency = (opts.currency || "USD").toUpperCase();
+  const rates = {
+    USD: 1,
+    COP: opts.copRate || 4200,
+    VES: opts.vesRate || 46.8,
+  };
+
   const width = 760;
   const itemRowHeight = 56;
   const maxItemsShown = Math.min(opts.items.length, 15);
-  const height = 390 + maxItemsShown * itemRowHeight + 150;
+  const height = 400 + maxItemsShown * itemRowHeight + 165;
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -68,8 +83,8 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
   ctx.font = "500 14px system-ui, -apple-system, sans-serif";
   ctx.fillText(
     opts.orderId
-      ? `COTIZACIÓN / PEDIDO #${opts.orderId} ${opts.batchLabel ? `• ${opts.batchLabel}` : ""}`
-      : `COTIZACIÓN DE ENCARGO ${opts.batchLabel ? `• ${opts.batchLabel}` : ""}`,
+      ? `COTIZACIÓN / PEDIDO #${opts.orderId} (${currency}) ${opts.batchLabel ? `• ${opts.batchLabel}` : ""}`
+      : `COTIZACIÓN DE ENCARGO (${currency}) ${opts.batchLabel ? `• ${opts.batchLabel}` : ""}`,
     56,
     108
   );
@@ -116,9 +131,9 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
   ctx.font = "bold 12px system-ui, -apple-system, sans-serif";
   ctx.fillText("PRODUCTO / ESPECIFICACIONES", 56, y);
   ctx.textAlign = "center";
-  ctx.fillText("CANT.", width - 175, y);
+  ctx.fillText("CANT.", width - 185, y);
   ctx.textAlign = "right";
-  ctx.fillText("SUBTOTAL", width - 56, y);
+  ctx.fillText(`SUBTOTAL (${currency})`, width - 56, y);
 
   y += 14;
   ctx.strokeStyle = "#1e293b";
@@ -133,7 +148,7 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
     const item = opts.items[i];
     const lineTotal = (Number(item.finalPrice) || 0) * (Number(item.quantity) || 1);
     const titleShort =
-      item.title.length > 52 ? `${item.title.slice(0, 49)}...` : item.title;
+      item.title.length > 50 ? `${item.title.slice(0, 47)}...` : item.title;
 
     ctx.textAlign = "left";
     ctx.fillStyle = "#f1f5f9";
@@ -143,7 +158,7 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
     const specs = [
       item.size ? `Talla: ${item.size}` : null,
       item.color ? `Color: ${item.color}` : null,
-      `$${Number(item.finalPrice).toFixed(2)} c/u`,
+      `${formatMoney(Number(item.finalPrice), currency)} c/u`,
     ]
       .filter(Boolean)
       .join("  •  ");
@@ -155,12 +170,12 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
     ctx.textAlign = "center";
     ctx.fillStyle = "#e2e8f0";
     ctx.font = "bold 14px system-ui, -apple-system, sans-serif";
-    ctx.fillText(`x${item.quantity || 1}`, width - 175, y + 6);
+    ctx.fillText(`x${item.quantity || 1}`, width - 185, y + 6);
 
     ctx.textAlign = "right";
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 15px system-ui, -apple-system, sans-serif";
-    ctx.fillText(`$${lineTotal.toFixed(2)}`, width - 56, y + 6);
+    ctx.fillText(formatMoney(lineTotal, currency), width - 56, y + 6);
 
     y += itemRowHeight;
   }
@@ -170,7 +185,7 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
   ctx.fillStyle = "#0f172a";
   ctx.strokeStyle = "#334155";
   ctx.beginPath();
-  ctx.roundRect(56, y, width - 112, 118, 14);
+  ctx.roundRect(56, y, width - 112, 136, 14);
   ctx.fill();
   ctx.stroke();
 
@@ -180,48 +195,52 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
   ctx.fillText(
     `Subtotal (${opts.items.reduce((a, b) => a + (b.quantity || 1), 0)} prendas):`,
     78,
-    y + 34
+    y + 32
   );
 
   ctx.textAlign = "right";
   ctx.fillStyle = "#ffffff";
   ctx.font = "bold 18px system-ui, -apple-system, sans-serif";
-  ctx.fillText(`$${opts.subtotalUsd.toFixed(2)} USD`, width - 78, y + 34);
+  ctx.fillText(formatMoney(opts.subtotalUsd, currency), width - 78, y + 32);
 
   // Seña requerida
   ctx.textAlign = "left";
   ctx.fillStyle = "#34d399";
-  ctx.font = "bold 18px system-ui, -apple-system, sans-serif";
+  ctx.font = "bold 17px system-ui, -apple-system, sans-serif";
   ctx.fillText(
     `Inicial / Seña para encargar (${opts.depositPct}%):`,
     78,
-    y + 68
+    y + 66
   );
 
-  const vesText = opts.vesRate
-    ? `  (Bs. ${(opts.depositUsd * opts.vesRate).toFixed(2)})`
-    : "";
   ctx.textAlign = "right";
   ctx.fillStyle = "#34d399";
-  ctx.font = "bold 22px system-ui, -apple-system, sans-serif";
-  ctx.fillText(`$${opts.depositUsd.toFixed(2)} USD${vesText}`, width - 78, y + 68);
+  ctx.font = "bold 21px system-ui, -apple-system, sans-serif";
+  ctx.fillText(formatMoney(opts.depositUsd, currency), width - 78, y + 66);
+
+  // Equivalencia multimoneda para facilitar el pago
+  const eqSummary = formatEquivalentSummary(opts.depositUsd, currency, rates);
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#94a3b8";
+  ctx.font = "500 12px system-ui, -apple-system, sans-serif";
+  ctx.fillText(`Equivalente seña: ${eqSummary}`, width - 78, y + 88);
 
   // Restante
-  const balanceUsd = Math.max(0, opts.subtotalUsd - opts.depositUsd);
+  const balance = Math.max(0, opts.subtotalUsd - opts.depositUsd);
   ctx.textAlign = "left";
   ctx.fillStyle = "#94a3b8";
   ctx.font = "500 13px system-ui, -apple-system, sans-serif";
   ctx.fillText(
-    `Restante al recibir mercancía: $${balanceUsd.toFixed(2)} USD`,
+    `Restante al recibir mercancía: ${formatMoney(balance, currency)}`,
     78,
-    y + 98
+    y + 116
   );
 
   if (opts.paymentSummary) {
     ctx.textAlign = "right";
     ctx.fillStyle = "#cbd5e1";
     ctx.font = "500 12px system-ui, -apple-system, sans-serif";
-    ctx.fillText(opts.paymentSummary.slice(0, 48), width - 78, y + 98);
+    ctx.fillText(opts.paymentSummary.slice(0, 48), width - 78, y + 116);
   }
 
   // Descargar PNG
@@ -236,4 +255,3 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
   link.click();
   document.body.removeChild(link);
 }
-

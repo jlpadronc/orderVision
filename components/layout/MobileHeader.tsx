@@ -57,6 +57,8 @@ export function MobileHeader({
 
   const isSuperAdmin = sessionUser.role === "SUPERADMIN";
   const vesRate = activeTenant?.settings?.exchangeRates?.VES ?? 46.8;
+  const copRate = activeTenant?.settings?.exchangeRates?.COP ?? 4180;
+  const baseCurrency = activeTenant?.currency ?? "USD";
 
   const tenantDesktopLinks = [
     { href: "/", label: "Inicio", icon: LayoutDashboard },
@@ -104,7 +106,7 @@ export function MobileHeader({
             <p className="text-[11px] text-slate-400">
               {isSuperAdmin
                 ? "Administración global de negocios y accesos"
-                : `${sessionUser.name} • Tasa: ${vesRate} Bs/USD`}
+                : `${sessionUser.name} • Base: ${baseCurrency} • 1 USD = $${copRate.toLocaleString("es-CO")} COP / Bs.${vesRate}`}
             </p>
           </div>
         </div>

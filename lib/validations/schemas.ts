@@ -31,10 +31,13 @@ export const PaymentMethodEnum = z.enum([
   "OTHER",
 ]);
 
+export const CurrencyEnum = z.enum(["USD", "COP", "VES"]);
+
 export type RoleType = z.infer<typeof RoleEnum>;
 export type BatchStatusType = z.infer<typeof BatchStatusEnum>;
 export type OrderStatusType = z.infer<typeof OrderStatusEnum>;
 export type PaymentMethodType = z.infer<typeof PaymentMethodEnum>;
+export type CurrencyType = z.infer<typeof CurrencyEnum>;
 
 export const TenantFeaturesSchema = z.object({
   aiVision: z.boolean().default(false),
@@ -143,6 +146,7 @@ export const CreateOrderSchema = z.object({
   tenantId: z.string().min(1, "tenantId es obligatorio"),
   batchId: z.string().optional().nullable(),
   customerId: z.string().min(1, "Debes seleccionar o registrar un cliente"),
+  currency: CurrencyEnum.optional().default("USD"),
   items: z.array(OrderItemInputSchema).min(1, "El pedido debe tener al menos un producto"),
   depositPaid: z.boolean().default(true),
   paymentMethod: PaymentMethodEnum,

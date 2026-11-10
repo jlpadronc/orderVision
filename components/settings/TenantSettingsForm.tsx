@@ -219,23 +219,46 @@ export function TenantSettingsForm({
                 Identidad, % de Seña y Tasas
               </div>
 
-              <div>
-                <label className="mb-1 block text-xs text-slate-300">
-                  Nombre Comercial
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
-                />
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-slate-300">
+                    Nombre Comercial
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs text-amber-300 font-semibold">
+                    Moneda Principal del Negocio
+                  </label>
+                  <select
+                    value={currency}
+                    onChange={(e) =>
+                      setCurrency(e.target.value as "USD" | "VES" | "COP")
+                    }
+                    className="w-full rounded-xl border border-amber-500/40 bg-slate-950 px-3 py-2 text-xs font-bold text-amber-200"
+                  >
+                    <option value="COP">
+                      COP ($ Pesos Colombianos - Catálogo Shein)
+                    </option>
+                    <option value="USD">
+                      USD ($ Dólares Estadounidenses)
+                    </option>
+                    <option value="VES">VES (Bs. Bolívares)</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="mb-1 block text-[11px] text-emerald-300">
-                    % Seña
+                    % Seña Inicial
                   </label>
                   <input
                     type="number"
@@ -248,24 +271,24 @@ export function TenantSettingsForm({
                 </div>
                 <div>
                   <label className="mb-1 block text-[11px] text-slate-300">
-                    Tasa VES
+                    Tasa COP / 1 USD
+                  </label>
+                  <input
+                    type="number"
+                    value={copRate}
+                    onChange={(e) => setCopRate(Number(e.target.value) || 1)}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-bold text-white"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] text-slate-300">
+                    Tasa VES / 1 USD
                   </label>
                   <input
                     type="number"
                     step="0.01"
                     value={vesRate}
                     onChange={(e) => setVesRate(Number(e.target.value) || 1)}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-bold text-white"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-[11px] text-slate-300">
-                    Tasa COP
-                  </label>
-                  <input
-                    type="number"
-                    value={copRate}
-                    onChange={(e) => setCopRate(Number(e.target.value) || 1)}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-xs font-bold text-white"
                   />
                 </div>

@@ -30,8 +30,15 @@ import type {
 import {
   DEFAULT_FEATURES,
   type BatchStatusType,
+  type CurrencyType,
   type OrderStatusType,
 } from "@/lib/validations/schemas";
+import {
+  convertCurrency,
+  formatEquivalentSummary,
+  formatMoney,
+  resolveExchangeRates,
+} from "@/lib/utils/currency";
 import { buildOrderWhatsAppMessage, buildWhatsAppUrl } from "@/lib/utils/whatsapp";
 import { exportQuoteAsPng } from "@/lib/utils/quoteImageExporter";
 
@@ -136,6 +143,15 @@ export function BatchesDashboardClient({
 
   const features = tenant.settings?.features ?? DEFAULT_FEATURES;
   const vesRate = tenant.settings?.exchangeRates?.VES ?? 46.8;
+  const copRate = tenant.settings?.exchangeRates?.COP ?? 4180;
+  const rates = useMemo(
+    () => resolveExchangeRates(tenant.settings?.exchangeRates),
+    [tenant.settings?.exchangeRates]
+  );
+  const tenantCurrency: CurrencyType =
+    tenant.currency === "COP" || tenant.currency === "VES"
+      ? tenant.currency
+      : "USD";
 
   // Todas las órdenes aplanadas (con su lote asociado)
   const allOrders = useMemo(() => {
@@ -173,18 +189,33 @@ export function BatchesDashboardClient({
       (acc, o) => acc + o.items.reduce((s, i) => s + (i.quantity || 1), 0),
       0
     );
-    const totalUsd = allOrders.reduce((acc, o) => acc + o.subtotal, 0);
-    const collectedUsd = allOrders.reduce(
+    const totalInTenantCurrency = allOrders.reduce(
       (acc, o) =>
-        acc + (o.finalPaymentPaid ? o.subtotal : o.depositAmountPaid),
+        acc + convertCurrency(o.subtotal, o.currency, tenantCurrency, rates),
       0
     );
-    const pendingUsd = allOrders.reduce(
-      (acc, o) => acc + (o.finalPaymentPaid ? 0 : o.balanceDue),
+    const collectedInTenantCurrency = allOrders.reduce(
+      (acc, o) =>
+        acc +
+        convertCurrency(
+          o.finalPaymentPaid ? o.subtotal : o.depositAmountPaid,
+          o.currency,
+          tenantCurrency,
+          rates
+        ),
       0
     );
-    const pendingPurchaseUsd = pendingPurchase.reduce(
-      (acc, o) => acc + o.subtotal,
+    const pendingInTenantCurrency = allOrders.reduce(
+      (acc, o) =>
+        acc +
+        (o.finalPaymentPaid
+          ? 0
+          : convertCurrency(o.balanceDue, o.currency, tenantCurrency, rates)),
+      0
+    );
+    const pendingPurchaseInTenantCurrency = pendingPurchase.reduce(
+      (acc, o) =>
+        acc + convertCurrency(o.subtotal, o.currency, tenantCurrency, rates),
       0
     );
 
@@ -193,14 +224,14 @@ export function BatchesDashboardClient({
       totalBatches: batches.length,
       totalProducts,
       pendingPurchaseCount: pendingPurchase.length,
-      pendingPurchaseUsd,
+      pendingPurchaseInTenantCurrency,
       inProgressCount: inProgress.length,
       completedCount: completed.length,
-      totalUsd,
-      collectedUsd,
-      pendingUsd,
+      totalInTenantCurrency,
+      collectedInTenantCurrency,
+      pendingInTenantCurrency,
     };
-  }, [allOrders, batches]);
+  }, [allOrders, batches, tenantCurrency, rates]);
 
   // Filtrado de pedidos en la pestaña "Todos los Pedidos"
   const filteredOrders = useMemo(() => {
@@ -291,6 +322,7 @@ export function BatchesDashboardClient({
         ? `${order.batch.code} (${formatShortDate(order.batch.purchaseDate)})`
         : null,
       dateLabel: formatShortDate(order.orderDate),
+      currency: order.currency || tenantCurrency,
       items: order.items.map((i) => ({
         title: i.title,
         size: i.size,
@@ -302,6 +334,7 @@ export function BatchesDashboardClient({
       depositPct: tenant.defaultDepositPct,
       depositUsd: order.depositRequired,
       vesRate,
+      copRate,
       paymentSummary: order.paymentMethod
         ? `Método: ${order.paymentMethod}`
         : undefined,
@@ -417,7 +450,7 @@ export function BatchesDashboardClient({
                 </span>
               </p>
               <p className="mt-0.5 text-[11px] text-amber-200/80">
-                ${stats.pendingPurchaseUsd.toFixed(2)} USD por comprar en página →
+                {formatMoney(stats.pendingPurchaseInTenantCurrency, tenantCurrency)} por comprar →
               </p>
             </button>
 
@@ -481,17 +514,17 @@ export function BatchesDashboardClient({
                 </span>
                 <ShoppingBag className="h-4 w-4 text-rose-400" />
               </div>
-              <p className="mt-1.5 text-2xl font-extrabold text-white">
-                ${stats.totalUsd.toFixed(2)}
+              <p className="mt-1.5 text-xl font-extrabold text-white">
+                {formatMoney(stats.totalInTenantCurrency, tenantCurrency)}
               </p>
               <p className="mt-0.5 text-[11px] text-slate-400">
                 Cobrado:{" "}
                 <strong className="text-emerald-400">
-                  ${stats.collectedUsd.toFixed(0)}
+                  {formatMoney(stats.collectedInTenantCurrency, tenantCurrency, false)}
                 </strong>{" "}
                 • Resta:{" "}
                 <strong className="text-amber-300">
-                  ${stats.pendingUsd.toFixed(0)}
+                  {formatMoney(stats.pendingInTenantCurrency, tenantCurrency, false)}
                 </strong>
               </p>
             </div>
@@ -542,7 +575,9 @@ export function BatchesDashboardClient({
                       </span>
                       <span>•</span>
                       <strong className="text-emerald-400">
-                        ${b.metrics.subtotalUsd.toFixed(0)}
+                        {tenantCurrency === "COP"
+                          ? formatMoney(b.metrics.subtotalCop, "COP")
+                          : formatMoney(b.metrics.subtotalUsd, "USD")}
                       </strong>
                     </div>
 
@@ -684,6 +719,8 @@ export function BatchesDashboardClient({
                   (i) => i.isPhysicallyVerified
                 ).length;
 
+                const orderCurr = order.currency || tenantCurrency;
+
                 const whatsappHref = buildWhatsAppUrl(
                   order.customer?.phone,
                   buildOrderWhatsAppMessage({
@@ -691,10 +728,12 @@ export function BatchesDashboardClient({
                     customerName: order.customer?.fullName ?? "Cliente",
                     orderId: order.id,
                     batchCode: order.batch?.code,
+                    currency: orderCurr,
                     subtotalUsd: order.subtotal,
                     depositRequiredUsd: order.depositRequired,
                     balanceDueUsd: order.balanceDue,
                     vesRate,
+                    copRate,
                     itemsCount: totalUnits,
                   })
                 );
@@ -705,7 +744,7 @@ export function BatchesDashboardClient({
                     className="flex flex-col justify-between rounded-2xl border border-slate-800 bg-slate-900/85 p-3.5 hover:border-slate-700 transition-all"
                   >
                     <div>
-                      {/* Fila 1: Lote + ID + Badge de Estado */}
+                      {/* Fila 1: Lote + ID + Moneda + Badge de Estado */}
                       <div className="flex flex-wrap items-center justify-between gap-1.5">
                         <div className="flex items-center gap-1.5">
                           {order.batch && (
@@ -717,6 +756,9 @@ export function BatchesDashboardClient({
                           <span className="font-mono text-[11px] text-slate-400">
                             #{order.id}
                           </span>
+                          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-rose-300">
+                            {orderCurr}
+                          </span>
                         </div>
 
                         <span
@@ -726,7 +768,7 @@ export function BatchesDashboardClient({
                         </span>
                       </div>
 
-                      {/* Fila 2: Cliente y Montos Compactos */}
+                      {/* Fila 2: Cliente y Montos Multimoneda */}
                       <div className="mt-2 flex items-start justify-between gap-2">
                         <div>
                           <h3 className="text-sm font-bold text-white">
@@ -743,16 +785,19 @@ export function BatchesDashboardClient({
 
                         <div className="text-right">
                           <p className="text-sm font-extrabold text-white">
-                            ${order.subtotal.toFixed(2)} USD
+                            {formatMoney(order.subtotal, orderCurr)}
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            {formatEquivalentSummary(order.subtotal, orderCurr, rates)}
                           </p>
                           <p className="text-[11px] text-slate-400">
                             Seña:{" "}
                             <span className="text-emerald-400 font-semibold">
-                              ${order.depositAmountPaid.toFixed(2)}
+                              {formatMoney(order.depositAmountPaid, orderCurr, false)}
                             </span>{" "}
                             • Resta:{" "}
                             <span className="text-amber-300 font-semibold">
-                              ${order.balanceDue.toFixed(2)}
+                              {formatMoney(order.balanceDue, orderCurr, false)}
                             </span>
                           </p>
                         </div>

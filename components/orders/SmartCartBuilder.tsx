@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import {
   Boxes,
   Calendar,
+  Coins,
   Download,
   FolderPlus,
-  Loader2,
   MessageCircle,
   Package,
   Plus,
@@ -26,8 +26,14 @@ import { DepositPaymentDrawer } from "@/components/orders/DepositPaymentDrawer";
 import { formatShortDate } from "@/components/orders/BatchesDashboardClient";
 import {
   DEFAULT_FEATURES,
+  type CurrencyType,
   type PaymentMethodType,
 } from "@/lib/validations/schemas";
+import {
+  convertCurrency,
+  formatEquivalentSummary,
+  formatMoney,
+} from "@/lib/utils/currency";
 import { exportQuoteAsPng } from "@/lib/utils/quoteImageExporter";
 import { buildOrderWhatsAppMessage, buildWhatsAppUrl } from "@/lib/utils/whatsapp";
 
@@ -59,6 +65,17 @@ export function SmartCartBuilder({
 }: SmartCartBuilderProps) {
   const router = useRouter();
   const features = tenant.settings?.features ?? DEFAULT_FEATURES;
+  const rates = tenant.settings?.exchangeRates;
+
+  // Moneda principal del pedido (por defecto toma la moneda configurada en el Tenant: COP o USD)
+  const [orderCurrency, setOrderCurrency] = useState<CurrencyType>(
+    ((tenant.currency?.toUpperCase() as CurrencyType) || "COP")
+  );
+
+  // Moneda en la que el operador escribe el precio del producto individual
+  const [draftCurrency, setDraftCurrency] = useState<CurrencyType>(
+    ((tenant.currency?.toUpperCase() as CurrencyType) || "COP")
+  );
 
   const [batches, setBatches] = useState<OrderBatchRecord[]>(initialBatches);
   const [selectedBatchId, setSelectedBatchId] = useState<string>(() => {
@@ -98,7 +115,7 @@ export function SmartCartBuilder({
   const [newCustomerInstagram, setNewCustomerInstagram] = useState("");
   const [creatingCustomer, setCreatingCustomer] = useState(false);
 
-  // Formulario para agregar producto al carrito (lectura de imágenes temporalmente oculta)
+  // Formulario para agregar producto al carrito
   const [draftTitle, setDraftTitle] = useState("");
   const [draftPrice, setDraftPrice] = useState("");
   const [draftQuantity, setDraftQuantity] = useState(1);
@@ -106,7 +123,7 @@ export function SmartCartBuilder({
   const [draftColor, setDraftColor] = useState("");
   const [draftModel, setDraftModel] = useState("");
 
-  // Carrito de productos (inicia vacío, sin datos demo)
+  // Carrito de productos
   const [items, setItems] = useState<CartProductItem[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [submittingOrder, setSubmittingOrder] = useState(false);
@@ -121,6 +138,33 @@ export function SmartCartBuilder({
   useEffect(() => {
     setBatches(initialBatches);
   }, [initialBatches]);
+
+  function handleChangeOrderCurrency(nextCurrency: CurrencyType) {
+    if (nextCurrency === orderCurrency) return;
+    // Convertir automáticamente los ítems que ya estén en el carrito a la nueva moneda del pedido
+    setItems((prev) =>
+      prev.map((item) => ({
+        ...item,
+        finalPrice: convertCurrency(
+          item.finalPrice,
+          orderCurrency,
+          nextCurrency,
+          rates
+        ),
+        originalPrice:
+          item.originalPrice !== null
+            ? convertCurrency(
+                item.originalPrice,
+                orderCurrency,
+                nextCurrency,
+                rates
+              )
+            : null,
+      }))
+    );
+    setOrderCurrency(nextCurrency);
+    setDraftCurrency(nextCurrency);
+  }
 
   const selectedBatch = useMemo(
     () => batches.find((b) => b.id === selectedBatchId) ?? null,
@@ -150,15 +194,17 @@ export function SmartCartBuilder({
           (item.quantity || 1),
       0
     );
-    return Number(sum.toFixed(2));
-  }, [items]);
+    return orderCurrency === "COP" ? Math.round(sum) : Number(sum.toFixed(2));
+  }, [items, orderCurrency]);
 
   const depositPct = (tenant.defaultDepositPct || 50) / 100;
-  const depositRequired = useMemo(
-    () => Number((subtotal * depositPct).toFixed(2)),
-    [subtotal, depositPct]
-  );
-  const vesRate = tenant.settings?.exchangeRates?.VES ?? 46.8;
+  const depositRequired = useMemo(() => {
+    const raw = subtotal * depositPct;
+    return orderCurrency === "COP" ? Math.round(raw) : Number(raw.toFixed(2));
+  }, [subtotal, depositPct, orderCurrency]);
+
+  const vesRate = rates?.VES ?? 46.8;
+  const copRate = rates?.COP ?? 4200;
 
   async function handleCreateQuickBatch(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -223,13 +269,21 @@ export function SmartCartBuilder({
       return;
     }
 
+    // Si el operador digitó el precio en otra moneda (ej. digitó en COP y el pedido está en USD, o viceversa), convertirlo a la moneda del pedido
+    const normalizedPrice = convertCurrency(
+      parsedPrice,
+      draftCurrency,
+      orderCurrency,
+      rates
+    );
+
     setItems((prev) => [
       ...prev,
       {
         localId: `item-${Date.now()}-${prev.length + 1}`,
         title: draftTitle.trim(),
         originalPrice: null,
-        finalPrice: Number(parsedPrice.toFixed(2)),
+        finalPrice: normalizedPrice,
         quantity: Math.max(1, Number(draftQuantity) || 1),
         size: draftSize.trim(),
         color: draftColor.trim(),
@@ -269,7 +323,9 @@ export function SmartCartBuilder({
         ? `${selectedBatch.code} • ${selectedBatch.name} (${formatShortDate(selectedBatch.purchaseDate)})`
         : null,
       dateLabel: formatShortDate(new Date().toISOString()),
+      currency: orderCurrency,
       vesRate,
+      copRate,
       subtotalUsd: subtotal,
       depositPct: tenant.defaultDepositPct || 50,
       depositUsd: depositRequired,
@@ -291,10 +347,12 @@ export function SmartCartBuilder({
       batchCode: selectedBatch
         ? `${selectedBatch.code} (${selectedBatch.name})`
         : null,
+      currency: orderCurrency,
       subtotalUsd: subtotal,
       depositRequiredUsd: depositRequired,
-      balanceDueUsd: Number((subtotal - depositRequired).toFixed(2)),
+      balanceDueUsd: Math.max(0, subtotal - depositRequired),
       vesRate,
+      copRate,
       itemsCount: items.reduce((acc, i) => acc + i.quantity, 0),
     });
     return buildWhatsAppUrl(selectedCustomer.phone, msg);
@@ -302,9 +360,11 @@ export function SmartCartBuilder({
     selectedCustomer,
     tenant.name,
     selectedBatch,
+    orderCurrency,
     subtotal,
     depositRequired,
     vesRate,
+    copRate,
     items,
   ]);
 
@@ -324,6 +384,7 @@ export function SmartCartBuilder({
           tenantId: tenant.id,
           batchId: selectedBatchId || null,
           customerId: selectedCustomerId,
+          currency: orderCurrency,
           depositPaid: true,
           paymentMethod: payload.paymentMethod,
           paymentReference: payload.paymentReference,
@@ -355,15 +416,37 @@ export function SmartCartBuilder({
 
   return (
     <div className="space-y-4">
-      {/* Encabezado Minimalista */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      {/* Encabezado Minimalista + Selector de Moneda del Pedido */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
         <div>
           <h1 className="text-lg font-bold text-white">
             Nuevo Pedido de Cliente
           </h1>
           <p className="text-xs text-slate-400">
-            Asigna el lote de salida, selecciona el cliente y registra los productos de su pedido.
+            Elige la moneda del pedido (COP para Shein o USD), selecciona el cliente y agrega sus productos.
           </p>
+        </div>
+
+        {/* Selector rápido de moneda del pedido (COP / USD) */}
+        <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 p-1">
+          <span className="inline-flex items-center gap-1 pl-2 text-[11px] font-semibold text-slate-400">
+            <Coins className="h-3.5 w-3.5 text-amber-400" />
+            Moneda del Pedido:
+          </span>
+          {(["COP", "USD"] as const).map((curr) => (
+            <button
+              key={curr}
+              type="button"
+              onClick={() => handleChangeOrderCurrency(curr)}
+              className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors ${
+                orderCurrency === curr
+                  ? "bg-rose-500 text-white shadow"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              {curr === "COP" ? "COP ($ Pesos)" : "USD ($ Dólares)"}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -495,13 +578,29 @@ export function SmartCartBuilder({
             )}
           </section>
 
-          {/* 3. Formulario Directo de Agregar Productos al Pedido */}
+          {/* 3. Formulario Directo de Agregar Productos al Pedido (Multimoneda COP / USD) */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-white">
                 <ShoppingBag className="h-3.5 w-3.5 text-rose-400" />
                 3. Agregar Producto al Pedido
               </span>
+              <div className="flex items-center gap-1 rounded-lg bg-slate-950 p-0.5 border border-slate-800">
+                {(["COP", "USD"] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setDraftCurrency(c)}
+                    className={`rounded-md px-2 py-0.5 text-[10px] font-bold transition-colors ${
+                      draftCurrency === c
+                        ? "bg-rose-500/25 text-rose-300 border border-rose-500/40"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                  >
+                    Precio en {c}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <form onSubmit={handleAddProductSubmit} className="space-y-2.5">
@@ -523,19 +622,38 @@ export function SmartCartBuilder({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-rose-300">
-                    Precio Unitario (USD)
+                    Precio Unitario ({draftCurrency})
                   </label>
                   <input
                     type="number"
-                    step="0.01"
+                    step={draftCurrency === "COP" ? "1" : "0.01"}
                     min="0.01"
                     required
-                    placeholder="19.50"
+                    placeholder={draftCurrency === "COP" ? "Ej. 65000" : "Ej. 19.50"}
                     value={draftPrice}
                     onChange={(e) => setDraftPrice(e.target.value)}
                     style={{ minHeight: "36px", fontSize: "0.75rem" }}
                     className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-bold text-white"
                   />
+                  {draftPrice && Number(draftPrice) > 0 && (
+                    <p className="mt-0.5 text-[10px] text-slate-400">
+                      {draftCurrency !== orderCurrency
+                        ? `Se agregará como ${formatMoney(
+                            convertCurrency(
+                              Number(draftPrice),
+                              draftCurrency,
+                              orderCurrency,
+                              rates
+                            ),
+                            orderCurrency
+                          )}`
+                        : formatEquivalentSummary(
+                            Number(draftPrice),
+                            draftCurrency,
+                            rates
+                          )}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-slate-300">
@@ -602,7 +720,7 @@ export function SmartCartBuilder({
                 className="flex h-9 w-full items-center justify-center gap-1.5 rounded-xl border border-rose-500/40 bg-rose-500/15 px-3 text-xs font-bold text-rose-300 hover:bg-rose-500/25"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Agregar Producto al Carrito
+                Agregar Producto al Carrito ({orderCurrency})
               </button>
             </form>
           </section>
@@ -615,7 +733,10 @@ export function SmartCartBuilder({
                   Subtotal ({items.reduce((s, i) => s + i.quantity, 0)} prendas)
                 </p>
                 <p className="text-lg font-bold text-white">
-                  ${subtotal.toFixed(2)} USD
+                  {formatMoney(subtotal, orderCurrency)}
+                </p>
+                <p className="text-[10px] text-slate-400">
+                  {formatEquivalentSummary(subtotal, orderCurrency, rates)}
                 </p>
               </div>
               <div className="text-right">
@@ -623,10 +744,10 @@ export function SmartCartBuilder({
                   Seña ({tenant.defaultDepositPct}%)
                 </p>
                 <p className="text-xl font-extrabold text-emerald-400">
-                  ${depositRequired.toFixed(2)} USD
+                  {formatMoney(depositRequired, orderCurrency)}
                 </p>
                 <p className="text-[10px] text-slate-400">
-                  Bs. {(depositRequired * vesRate).toFixed(2)} VES
+                  {formatEquivalentSummary(depositRequired, orderCurrency, rates)}
                 </p>
               </div>
             </div>
@@ -663,7 +784,7 @@ export function SmartCartBuilder({
               onClick={() => setDrawerOpen(true)}
               className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-rose-500 to-purple-600 px-4 text-sm font-bold text-white shadow-lg shadow-rose-500/20 disabled:opacity-40"
             >
-              Confirmar y Cobrar {tenant.defaultDepositPct}% (${depositRequired.toFixed(2)})
+              Confirmar y Cobrar {tenant.defaultDepositPct}% ({formatMoney(depositRequired, orderCurrency)})
             </button>
           </section>
         </div>
@@ -672,7 +793,7 @@ export function SmartCartBuilder({
         <div className="space-y-2.5 lg:col-span-7">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Productos en el Pedido ({items.length})
+              Productos en el Pedido ({items.length}) • Moneda: {orderCurrency}
             </h2>
           </div>
 
@@ -683,7 +804,7 @@ export function SmartCartBuilder({
                 El carrito del pedido está vacío
               </p>
               <p className="text-xs text-slate-500">
-                Usa el formulario de la izquierda para agregar los productos solicitados por el cliente.
+                Usa el formulario de la izquierda para agregar los productos solicitados por el cliente en {orderCurrency === "COP" ? "Pesos Colombianos (COP)" : "Dólares (USD)"}.
               </p>
             </div>
           ) : (
@@ -727,11 +848,11 @@ export function SmartCartBuilder({
                     <div className="grid grid-cols-4 gap-2">
                       <div>
                         <label className="block text-[10px] text-rose-300 font-semibold">
-                          Precio USD
+                          Precio ({orderCurrency})
                         </label>
                         <input
                           type="number"
-                          step="0.01"
+                          step={orderCurrency === "COP" ? "1" : "0.01"}
                           value={item.finalPrice}
                           onChange={(e) =>
                             handleUpdateItem(
@@ -796,6 +917,25 @@ export function SmartCartBuilder({
                           className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-white"
                         />
                       </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                      <span>
+                        Subtotal línea:{" "}
+                        <strong className="text-white">
+                          {formatMoney(
+                            item.finalPrice * (item.quantity || 1),
+                            orderCurrency
+                          )}
+                        </strong>
+                      </span>
+                      <span>
+                        {formatEquivalentSummary(
+                          item.finalPrice * (item.quantity || 1),
+                          orderCurrency,
+                          rates
+                        )}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -978,6 +1118,7 @@ export function SmartCartBuilder({
         onClose={() => setDrawerOpen(false)}
         tenant={tenant}
         customerName={selectedCustomer?.fullName || "Cliente"}
+        currency={orderCurrency}
         subtotal={subtotal}
         depositRequired={depositRequired}
         isSubmitting={submittingOrder}

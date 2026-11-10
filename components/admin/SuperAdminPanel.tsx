@@ -44,7 +44,7 @@ export function SuperAdminPanel({
   const newTenantDialogRef = useRef<HTMLDialogElement | null>(null);
   const [tenantName, setTenantName] = useState("");
   const [tenantSlug, setTenantSlug] = useState("");
-  const [tenantCurrency, setTenantCurrency] = useState<"USD" | "VES" | "COP">("USD");
+  const [tenantCurrency, setTenantCurrency] = useState<"USD" | "VES" | "COP">("COP");
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("123456");
@@ -323,6 +323,9 @@ export function SuperAdminPanel({
                       <span className="font-mono text-xs text-slate-400">
                         /{tenant.slug}
                       </span>
+                      <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-300">
+                        {tenant.currency}
+                      </span>
                       <span
                         className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                           tenant.active
@@ -542,6 +545,33 @@ export function SuperAdminPanel({
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-white"
               />
             </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="new-tenant-currency"
+              className="mb-1 block text-xs font-semibold text-amber-300"
+            >
+              Moneda Base del Negocio (Se puede alternar por pedido) *
+            </label>
+            <select
+              id="new-tenant-currency"
+              value={tenantCurrency}
+              onChange={(e) =>
+                setTenantCurrency(e.target.value as "USD" | "VES" | "COP")
+              }
+              className="w-full rounded-xl border border-amber-500/40 bg-slate-950 px-3 py-2 text-xs font-bold text-amber-200"
+            >
+              <option value="COP">
+                COP - Pesos Colombianos (Principal para Shein)
+              </option>
+              <option value="USD">
+                USD - Dólares Estadounidenses
+              </option>
+              <option value="VES">
+                VES - Bolívares (Venezuela)
+              </option>
+            </select>
           </div>
 
           <div className="border-t border-slate-800 pt-3">

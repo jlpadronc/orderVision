@@ -113,14 +113,15 @@ model Order {
   customerId          String
   customer            Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
   status              OrderStatus    @default(DRAFT)
+  currency            String         @default("USD") // Moneda del pedido: "COP" | "USD" | "VES"
   orderDate           DateTime       @default(now())
 
-  // Balances financieros
-  subtotal            Decimal        @default(0.00) @db.Decimal(10, 2)
-  depositRequired     Decimal        @default(0.00) @db.Decimal(10, 2) // 50% automático
+  // Balances financieros (en la moneda del pedido: currency)
+  subtotal            Decimal        @default(0.00) @db.Decimal(14, 2)
+  depositRequired     Decimal        @default(0.00) @db.Decimal(14, 2) // 50% automático
   depositPaid         Boolean        @default(false)
-  depositAmountPaid   Decimal        @default(0.00) @db.Decimal(10, 2)
-  balanceDue          Decimal        @default(0.00) @db.Decimal(10, 2) // 50% restante
+  depositAmountPaid   Decimal        @default(0.00) @db.Decimal(14, 2)
+  balanceDue          Decimal        @default(0.00) @db.Decimal(14, 2) // 50% restante
   finalPaymentPaid    Boolean        @default(false)
 
   // Registro de pago inicial (Seña 50%)
@@ -150,10 +151,10 @@ model OrderItem {
   orderId              String
   order                Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  // Datos del producto
+  // Datos del producto (en la moneda del pedido)
   title                String
-  originalPrice        Decimal? @db.Decimal(10, 2) // Precio tachado / rayado
-  finalPrice           Decimal  @db.Decimal(10, 2) // Precio de página / venta
+  originalPrice        Decimal? @db.Decimal(14, 2) // Precio tachado / rayado
+  finalPrice           Decimal  @db.Decimal(14, 2) // Precio de página / venta
   quantity             Int      @default(1)
 
   // Especificaciones críticas para cotejo físico

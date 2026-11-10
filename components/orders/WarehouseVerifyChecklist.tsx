@@ -30,6 +30,11 @@ import {
 } from "@/lib/validations/schemas";
 import { buildOrderWhatsAppMessage, buildWhatsAppUrl } from "@/lib/utils/whatsapp";
 import { exportQuoteAsPng } from "@/lib/utils/quoteImageExporter";
+import {
+  formatEquivalentSummary,
+  formatMoney,
+  resolveExchangeRates,
+} from "@/lib/utils/currency";
 
 interface WarehouseVerifyChecklistProps {
   tenant: TenantRecord;
@@ -91,10 +96,15 @@ export function WarehouseVerifyChecklist({
   const allVerified = totalItems > 0 && verifiedCount === totalItems;
 
   const vesRate = tenant.settings?.exchangeRates?.VES ?? 46.8;
-  const remainingUsd = order.finalPaymentPaid
+  const copRate = tenant.settings?.exchangeRates?.COP ?? 4180;
+  const rates = useMemo(
+    () => resolveExchangeRates(tenant.settings?.exchangeRates),
+    [tenant.settings?.exchangeRates]
+  );
+  const orderCurrency = order.currency ?? tenant.currency ?? "USD";
+  const remainingAmount = order.finalPaymentPaid
     ? 0
     : Number((order.subtotal - order.depositAmountPaid).toFixed(2));
-  const remainingVes = (remainingUsd * vesRate).toFixed(2);
 
   async function handleToggleItemVerified(itemId: string, nextValue: boolean) {
     setUpdatingItemId(itemId);
@@ -208,10 +218,12 @@ export function WarehouseVerifyChecklist({
         quantity: i.quantity,
         finalPrice: i.finalPrice,
       })),
+      currency: orderCurrency,
       subtotalUsd: order.subtotal,
       depositPct: tenant.defaultDepositPct,
       depositUsd: order.depositRequired,
       vesRate,
+      copRate,
     });
   }
 
@@ -222,10 +234,12 @@ export function WarehouseVerifyChecklist({
       customerName: order.customer?.fullName ?? "Cliente",
       orderId: order.id,
       batchCode: order.batch?.code,
+      currency: orderCurrency,
       subtotalUsd: order.subtotal,
       depositRequiredUsd: order.depositRequired,
-      balanceDueUsd: remainingUsd,
+      balanceDueUsd: remainingAmount,
       vesRate,
+      copRate,
       itemsCount: totalItems,
     })
   );
@@ -313,16 +327,23 @@ export function WarehouseVerifyChecklist({
       {/* Resumen Compacto del Cliente + Liquidación 50% Restante */}
       <section className="rounded-2xl border border-slate-800 bg-slate-900/85 p-4 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-base font-extrabold text-white">
-            {order.customer?.fullName} •{" "}
-            <span className="font-mono text-xs text-slate-400">#{order.id}</span>
-          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-base font-extrabold text-white">
+              {order.customer?.fullName} •{" "}
+              <span className="font-mono text-xs text-slate-400">#{order.id}</span>
+            </h1>
+            <span className="rounded bg-slate-800 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300">
+              Moneda: {orderCurrency}
+            </span>
+          </div>
           <p className="text-xs text-slate-400">
             WhatsApp: {order.customer?.phone} • Total:{" "}
-            <strong className="text-white">${order.subtotal.toFixed(2)}</strong>{" "}
+            <strong className="text-white">
+              {formatMoney(order.subtotal, orderCurrency)}
+            </strong>{" "}
             • Seña 50%:{" "}
             <strong className="text-emerald-400">
-              ${order.depositAmountPaid.toFixed(2)} ✓
+              {formatMoney(order.depositAmountPaid, orderCurrency)} ✓
             </strong>
           </p>
         </div>
@@ -333,7 +354,10 @@ export function WarehouseVerifyChecklist({
               Cotejo: {verifiedCount}/{totalItems} prendas
             </p>
             <p className="text-[11px] text-amber-300">
-              Resta: ${remainingUsd.toFixed(2)} USD (Bs. {remainingVes})
+              Resta: {formatMoney(remainingAmount, orderCurrency)}
+            </p>
+            <p className="text-[10px] text-slate-400">
+              {formatEquivalentSummary(remainingAmount, orderCurrency, rates)}
             </p>
           </div>
 
@@ -344,7 +368,7 @@ export function WarehouseVerifyChecklist({
               className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-emerald-500 px-3.5 text-xs font-extrabold text-slate-950 hover:bg-emerald-400"
             >
               <Wallet className="h-3.5 w-3.5" />
-              Cobrar Restante (${remainingUsd.toFixed(2)})
+              Cobrar Restante ({formatMoney(remainingAmount, orderCurrency)})
             </button>
           ) : (
             <span className="inline-flex items-center gap-1 rounded-xl bg-emerald-500/20 px-3 py-1.5 text-xs font-bold text-emerald-300">
@@ -395,6 +419,9 @@ export function WarehouseVerifyChecklist({
                     </span>
                     <span className="rounded bg-sky-500/15 px-2 py-0.5 font-bold text-sky-200">
                       Color: {item.color || "-"}
+                    </span>
+                    <span className="rounded bg-slate-800 px-2 py-0.5 font-mono font-bold text-emerald-300">
+                      {formatMoney(item.finalPrice, orderCurrency)} x{item.quantity}
                     </span>
                   </div>
 
@@ -456,7 +483,7 @@ export function WarehouseVerifyChecklist({
       >
         <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
           <h3 id="final-settle-dialog-title" className="text-sm font-bold text-white">
-            Liquidar 50% Restante (${remainingUsd.toFixed(2)} USD)
+            Liquidar 50% Restante ({formatMoney(remainingAmount, orderCurrency)})
           </h3>
           <button
             type="button"

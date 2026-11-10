@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { ensureDatabaseSchema, prisma } from "@/lib/prisma";
+import { convertCurrency } from "@/lib/utils/currency";
 import {
   DEFAULT_FEATURES,
   type AssignOrderBatchSchema,
@@ -9,6 +10,7 @@ import {
   type CreateOrderSchema,
   type CreateTenantByAdminSchema,
   type CreateUserSchema,
+  type CurrencyType,
   type OrderStatusType,
   type PaymentMethodType,
   type RoleType,
@@ -115,6 +117,7 @@ export interface OrderRecord {
   customerId: string;
   customer?: CustomerRecord;
   status: OrderStatusType;
+  currency: CurrencyType;
   orderDate: string;
   subtotal: number;
   depositRequired: number;
@@ -144,6 +147,9 @@ export interface OrderBatchRecord extends OrderBatchSummary {
     subtotalUsd: number;
     depositPaidUsd: number;
     balanceDueUsd: number;
+    subtotalCop: number;
+    depositPaidCop: number;
+    balanceDueCop: number;
     pendingPurchaseOrdersCount: number;
     inProgressOrdersCount: number;
     completedOrdersCount: number;
@@ -238,6 +244,7 @@ function mapPrismaOrderToRecord(o: {
     createdAt: Date;
   };
   status: OrderStatusType;
+  currency?: string | null;
   orderDate: Date;
   subtotal: unknown;
   depositRequired: unknown;
@@ -298,6 +305,7 @@ function mapPrismaOrderToRecord(o: {
       createdAt: o.customer.createdAt.toISOString(),
     },
     status: o.status,
+    currency: ((o.currency || "USD").toUpperCase() as CurrencyType) || "USD",
     orderDate: o.orderDate.toISOString(),
     subtotal: Number(o.subtotal),
     depositRequired: Number(o.depositRequired),
@@ -710,22 +718,28 @@ export async function createCustomerForTenant(
  * Lista todos los Lotes de Pedidos Consolidados (`OrderBatch`) de un Tenant.
  */
 export async function listBatchesByTenant(tenantId: string): Promise<OrderBatchRecord[]> {
-  const rows = await prisma.orderBatch.findMany({
-    where: { tenantId },
-    include: {
-      orders: {
-        include: {
-          customer: true,
-          batch: true,
-          items: {
-            orderBy: { createdAt: "asc" },
+  await ensureDatabaseSchema();
+  const [tenant, rows] = await Promise.all([
+    getTenantByIdOrSlug(tenantId),
+    prisma.orderBatch.findMany({
+      where: { tenantId },
+      include: {
+        orders: {
+          include: {
+            customer: true,
+            batch: true,
+            items: {
+              orderBy: { createdAt: "asc" },
+            },
           },
+          orderBy: { createdAt: "asc" },
         },
-        orderBy: { createdAt: "asc" },
       },
-    },
-    orderBy: { purchaseDate: "asc" },
-  });
+      orderBy: { purchaseDate: "asc" },
+    }),
+  ]);
+
+  const rates = tenant?.settings?.exchangeRates;
 
   return rows.map((b) => {
     const mappedOrders = b.orders.map(mapPrismaOrderToRecord);
@@ -743,16 +757,50 @@ export async function listBatchesByTenant(tenantId: string): Promise<OrderBatchR
         ),
       0
     );
+
     const subtotalUsd = Number(
-      mappedOrders.reduce((acc, o) => acc + o.subtotal, 0).toFixed(2)
+      mappedOrders
+        .reduce((acc, o) => acc + convertCurrency(o.subtotal, o.currency, "USD", rates), 0)
+        .toFixed(2)
     );
     const depositPaidUsd = Number(
-      mappedOrders.reduce((acc, o) => acc + o.depositAmountPaid, 0).toFixed(2)
+      mappedOrders
+        .reduce(
+          (acc, o) => acc + convertCurrency(o.depositAmountPaid, o.currency, "USD", rates),
+          0
+        )
+        .toFixed(2)
     );
     const balanceDueUsd = Number(
       mappedOrders
-        .reduce((acc, o) => acc + (o.finalPaymentPaid ? 0 : o.balanceDue), 0)
+        .reduce(
+          (acc, o) =>
+            acc +
+            (o.finalPaymentPaid ? 0 : convertCurrency(o.balanceDue, o.currency, "USD", rates)),
+          0
+        )
         .toFixed(2)
+    );
+
+    const subtotalCop = Math.round(
+      mappedOrders.reduce(
+        (acc, o) => acc + convertCurrency(o.subtotal, o.currency, "COP", rates),
+        0
+      )
+    );
+    const depositPaidCop = Math.round(
+      mappedOrders.reduce(
+        (acc, o) => acc + convertCurrency(o.depositAmountPaid, o.currency, "COP", rates),
+        0
+      )
+    );
+    const balanceDueCop = Math.round(
+      mappedOrders.reduce(
+        (acc, o) =>
+          acc +
+          (o.finalPaymentPaid ? 0 : convertCurrency(o.balanceDue, o.currency, "COP", rates)),
+        0
+      )
     );
 
     const pendingPurchaseOrdersCount = mappedOrders.filter(
@@ -787,6 +835,9 @@ export async function listBatchesByTenant(tenantId: string): Promise<OrderBatchR
         subtotalUsd,
         depositPaidUsd,
         balanceDueUsd,
+        subtotalCop,
+        depositPaidCop,
+        balanceDueCop,
         pendingPurchaseOrdersCount,
         inProgressOrdersCount,
         completedOrdersCount,
@@ -957,6 +1008,8 @@ export async function createOrderForTenant(
   }
 
   const orderId = `ord-${crypto.randomUUID().slice(0, 8)}`;
+  const orderCurrency: CurrencyType =
+    input.currency || ((tenant.currency?.toUpperCase() as CurrencyType) ?? "USD");
 
   const created = await prisma.order.create({
     data: {
@@ -965,6 +1018,7 @@ export async function createOrderForTenant(
       batchId: resolvedBatchId,
       customerId: input.customerId,
       status,
+      currency: orderCurrency,
       orderDate: new Date(),
       subtotal,
       depositRequired,

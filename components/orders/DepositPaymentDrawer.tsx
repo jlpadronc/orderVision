@@ -12,7 +12,11 @@ import {
   X,
 } from "lucide-react";
 import type { TenantRecord } from "@/lib/repositories/multiTenantRepository";
-import type { PaymentMethodType } from "@/lib/validations/schemas";
+import {
+  formatEquivalentSummary,
+  formatMoney,
+} from "@/lib/utils/currency";
+import type { CurrencyType, PaymentMethodType } from "@/lib/validations/schemas";
 
 export interface PaymentMethodOption {
   value: PaymentMethodType;
@@ -59,6 +63,7 @@ interface DepositPaymentDrawerProps {
   onClose: () => void;
   tenant: TenantRecord;
   customerName: string;
+  currency?: CurrencyType;
   subtotal: number;
   depositRequired: number;
   isSubmitting: boolean;
@@ -76,6 +81,7 @@ export function DepositPaymentDrawer({
   onClose,
   tenant,
   customerName,
+  currency = "USD",
   subtotal,
   depositRequired,
   isSubmitting,
@@ -103,10 +109,11 @@ export function DepositPaymentDrawer({
     }
   }, [open]);
 
-  const vesRate = tenant.settings?.exchangeRates?.VES ?? 46.8;
-  const copRate = tenant.settings?.exchangeRates?.COP ?? 4180;
-  const depositInVes = (depositRequired * vesRate).toFixed(2);
-  const depositInCop = Math.round(depositRequired * copRate).toLocaleString("es-CO");
+  const eqSummary = formatEquivalentSummary(
+    depositRequired,
+    currency,
+    tenant.settings?.exchangeRates
+  );
 
   const activeAccountInfo =
     tenant.settings?.paymentAccounts?.[paymentMethod] ?? null;
@@ -205,7 +212,7 @@ export function DepositPaymentDrawer({
         <div className="rounded-2xl border border-slate-800 bg-slate-950/90 p-4">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>Cliente: {customerName}</span>
-            <span>Subtotal: ${subtotal.toFixed(2)} USD</span>
+            <span>Subtotal: {formatMoney(subtotal, currency)}</span>
           </div>
           <div className="mt-2 flex items-baseline justify-between border-t border-slate-800/80 pt-3">
             <div>
@@ -213,11 +220,11 @@ export function DepositPaymentDrawer({
                 Seña Requerida ({tenant.defaultDepositPct}%)
               </p>
               <p className="text-[11px] text-slate-400">
-                Bs. {depositInVes} VES • ${depositInCop} COP
+                {eqSummary}
               </p>
             </div>
             <p className="text-2xl font-extrabold text-emerald-400">
-              ${depositRequired.toFixed(2)} <span className="text-xs font-normal">USD</span>
+              {formatMoney(depositRequired, currency)}
             </p>
           </div>
         </div>
@@ -431,7 +438,7 @@ export function DepositPaymentDrawer({
             ) : (
               <>
                 <CheckCircle2 className="h-5 w-5" />
-                Confirmar y Crear Pedido (${depositRequired.toFixed(2)} USD)
+                Confirmar y Crear Pedido ({formatMoney(depositRequired, currency)})
               </>
             )}
           </button>
