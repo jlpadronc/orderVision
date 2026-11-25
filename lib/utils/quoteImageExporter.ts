@@ -14,6 +14,9 @@ export interface QuoteExportItem {
 
 export interface QuoteExportOptions {
   tenantName: string;
+  logoUrl?: string | null;
+  primaryColor?: string;
+  secondaryColor?: string;
   customerName: string;
   customerPhone?: string | null;
   orderId?: string;
@@ -65,28 +68,55 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
   ctx.fill();
   ctx.stroke();
 
-  // Banda superior de acento
+  // Banda superior de acento con colores de marca del tenant
+  const primaryColor = opts.primaryColor || "#f43f5e";
+  const secondaryColor = opts.secondaryColor || "#8b5cf6";
   const grad = ctx.createLinearGradient(28, 28, width - 28, 28);
-  grad.addColorStop(0, "#f43f5e");
-  grad.addColorStop(1, "#8b5cf6");
+  grad.addColorStop(0, primaryColor);
+  grad.addColorStop(1, secondaryColor);
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.roundRect(28, 28, width - 56, 10, [20, 20, 0, 0]);
   ctx.fill();
 
+  // Cargar y dibujar Logo del Tenant si existe
+  let textLeft = 56;
+  if (opts.logoUrl) {
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        img.src = opts.logoUrl!;
+      });
+      if (img.width > 0 && img.height > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(56, 52, 48, 48, 10);
+        ctx.clip();
+        ctx.drawImage(img, 56, 52, 48, 48);
+        ctx.restore();
+        textLeft = 116;
+      }
+    } catch {
+      // Continuar si falla la carga de imagen externa
+    }
+  }
+
   // Encabezado de Tienda
   ctx.fillStyle = "#f8fafc";
-  ctx.font = "bold 26px system-ui, -apple-system, sans-serif";
-  ctx.fillText(opts.tenantName.toUpperCase(), 56, 82);
+  ctx.font = "bold 24px system-ui, -apple-system, sans-serif";
+  ctx.fillText(opts.tenantName.toUpperCase(), textLeft, 78);
 
   ctx.fillStyle = "#94a3b8";
-  ctx.font = "500 14px system-ui, -apple-system, sans-serif";
+  ctx.font = "500 13px system-ui, -apple-system, sans-serif";
   ctx.fillText(
     opts.orderId
       ? `COTIZACIÓN / PEDIDO #${opts.orderId} (${currency}) ${opts.batchLabel ? `• ${opts.batchLabel}` : ""}`
       : `COTIZACIÓN DE ENCARGO (${currency}) ${opts.batchLabel ? `• ${opts.batchLabel}` : ""}`,
-    56,
-    108
+    textLeft,
+    102
   );
 
   const dateText =

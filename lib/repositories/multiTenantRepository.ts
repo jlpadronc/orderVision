@@ -3,8 +3,12 @@ import { ensureDatabaseSchema, prisma } from "@/lib/prisma";
 import { convertCurrency } from "@/lib/utils/currency";
 import {
   DEFAULT_FEATURES,
+  DEFAULT_TENANT_THEME,
+  DEFAULT_WHATSAPP_CONFIG,
+  type AddOrderStatusEventSchema,
   type AssignOrderBatchSchema,
   type BatchStatusType,
+  type BusinessType,
   type CreateBatchSchema,
   type CreateCustomerSchema,
   type CreateOrderSchema,
@@ -17,15 +21,31 @@ import {
   type SettleFinalPaymentSchema,
   type TenantFeatures,
   type TenantSettingsSchema,
+  type TenantTheme,
+  type TenantWhatsAppConfig,
   type UpdateBatchStatusSchema,
+  type UpdateCustomerSchema,
+  type UpdateOrderSchema,
   type UpdateTenantAdminControlsSchema,
   type VerifyOrderItemSchema,
 } from "@/lib/validations/schemas";
 import type { z } from "zod";
 
+export interface OrderStatusEvent {
+  id: string;
+  status: OrderStatusType;
+  label: string;
+  note: string;
+  createdAt: string;
+  authorName?: string;
+}
+
 export interface TenantSettingsPayload {
+  businessType?: BusinessType;
   logoUrl?: string | null;
+  theme?: TenantTheme;
   features?: TenantFeatures;
+  whatsappConfig?: TenantWhatsAppConfig;
   exchangeRates: {
     USD: number;
     VES: number;
@@ -76,6 +96,7 @@ export interface CustomerRecord {
   tenantId: string;
   fullName: string;
   phone: string;
+  documentId?: string | null;
   instagram: string | null;
   notes: string | null;
   createdAt: string;
@@ -95,6 +116,9 @@ export interface OrderItemRecord {
   verificationNotes: string | null;
   sourceImageUrl: string | null;
   isPhysicallyVerified: boolean;
+  serviceType?: string | null;
+  fabricDetails?: string | null;
+  measurements?: Record<string, string | number> | null;
   createdAt: string;
 }
 
@@ -119,6 +143,11 @@ export interface OrderRecord {
   status: OrderStatusType;
   currency: CurrencyType;
   orderDate: string;
+  businessType?: BusinessType;
+  fittingDate?: string | null;
+  estimatedDeliveryDate?: string | null;
+  measurements?: Record<string, string | number> | null;
+  statusHistory?: OrderStatusEvent[] | null;
   subtotal: number;
   depositRequired: number;
   depositPaid: boolean;
@@ -162,7 +191,9 @@ export { DEFAULT_FEATURES };
 
 export const DEFAULT_TENANT_SETTINGS: TenantSettingsPayload = {
   logoUrl: null,
+  theme: DEFAULT_TENANT_THEME,
   features: DEFAULT_FEATURES,
+  whatsappConfig: DEFAULT_WHATSAPP_CONFIG,
   exchangeRates: {
     USD: 1,
     VES: 46.8,
@@ -199,16 +230,39 @@ export const DEFAULT_TENANT_SETTINGS: TenantSettingsPayload = {
       holder: "",
       identifier: "",
     },
+    CASH_COP: {
+      enabled: true,
+      label: "Efectivo COP",
+      holder: "",
+      identifier: "",
+    },
   },
 };
 
 function normalizeTenantSettings(raw: unknown): TenantSettingsPayload {
   const obj = (raw && typeof raw === "object" ? raw : {}) as Partial<TenantSettingsPayload>;
+  const rawTheme = (obj.theme && typeof obj.theme === "object" ? obj.theme : {}) as Record<string, string | undefined>;
+  const rawWa = (obj.whatsappConfig && typeof obj.whatsappConfig === "object" ? obj.whatsappConfig : {}) as Record<string, any>;
+  const waConfig: TenantWhatsAppConfig = {
+    enabled: typeof rawWa.enabled === "boolean" ? rawWa.enabled : (obj.features?.whatsappButton ?? DEFAULT_WHATSAPP_CONFIG.enabled),
+    phoneNumber: typeof rawWa.phoneNumber === "string" ? rawWa.phoneNumber : "",
+    buttonText: typeof rawWa.buttonText === "string" && rawWa.buttonText.trim() ? rawWa.buttonText.trim() : DEFAULT_WHATSAPP_CONFIG.buttonText,
+    customMessage: typeof rawWa.customMessage === "string" && rawWa.customMessage.trim() ? rawWa.customMessage.trim() : DEFAULT_WHATSAPP_CONFIG.customMessage,
+  };
   return {
+    businessType: obj.businessType ?? "IMPORT",
     logoUrl: obj.logoUrl ?? null,
+    theme: {
+      primaryColor: rawTheme.primaryColor || DEFAULT_TENANT_THEME.primaryColor,
+      secondaryColor: rawTheme.secondaryColor || DEFAULT_TENANT_THEME.secondaryColor,
+      accentColor: rawTheme.accentColor || DEFAULT_TENANT_THEME.accentColor,
+      preset: rawTheme.preset || DEFAULT_TENANT_THEME.preset,
+    },
+    whatsappConfig: waConfig,
     features: {
       ...DEFAULT_FEATURES,
       ...(obj.features || {}),
+      whatsappButton: waConfig.enabled,
     },
     exchangeRates: {
       USD: obj.exchangeRates?.USD ?? 1,
@@ -239,6 +293,7 @@ function mapPrismaOrderToRecord(o: {
     tenantId: string;
     fullName: string;
     phone: string;
+    documentId?: string | null;
     instagram: string | null;
     notes: string | null;
     createdAt: Date;
@@ -246,6 +301,11 @@ function mapPrismaOrderToRecord(o: {
   status: OrderStatusType;
   currency?: string | null;
   orderDate: Date;
+  businessType?: string | null;
+  fittingDate?: Date | null;
+  estimatedDeliveryDate?: Date | null;
+  measurements?: unknown;
+  statusHistory?: unknown;
   subtotal: unknown;
   depositRequired: unknown;
   depositPaid: boolean;
@@ -271,6 +331,9 @@ function mapPrismaOrderToRecord(o: {
     color: string | null;
     modelVariant: string | null;
     verificationNotes: string | null;
+    serviceType?: string | null;
+    fabricDetails?: string | null;
+    measurements?: unknown;
     sourceImageUrl: string | null;
     isPhysicallyVerified: boolean;
     createdAt: Date;
@@ -278,6 +341,32 @@ function mapPrismaOrderToRecord(o: {
   createdAt: Date;
   updatedAt: Date;
 }): OrderRecord {
+  let parsedMeasurements: Record<string, string | number> | null = null;
+  if (o.measurements) {
+    if (typeof o.measurements === "string") {
+      try {
+        parsedMeasurements = JSON.parse(o.measurements);
+      } catch {
+        parsedMeasurements = null;
+      }
+    } else if (typeof o.measurements === "object") {
+      parsedMeasurements = o.measurements as Record<string, string | number>;
+    }
+  }
+
+  let parsedStatusHistory: OrderStatusEvent[] = [];
+  if (o.statusHistory) {
+    if (typeof o.statusHistory === "string") {
+      try {
+        parsedStatusHistory = JSON.parse(o.statusHistory);
+      } catch {
+        parsedStatusHistory = [];
+      }
+    } else if (Array.isArray(o.statusHistory)) {
+      parsedStatusHistory = o.statusHistory as OrderStatusEvent[];
+    }
+  }
+
   return {
     id: o.id,
     tenantId: o.tenantId,
@@ -300,6 +389,7 @@ function mapPrismaOrderToRecord(o: {
       tenantId: o.customer.tenantId,
       fullName: o.customer.fullName,
       phone: o.customer.phone,
+      documentId: (o.customer as any).documentId ?? null,
       instagram: o.customer.instagram,
       notes: o.customer.notes,
       createdAt: o.customer.createdAt.toISOString(),
@@ -307,6 +397,13 @@ function mapPrismaOrderToRecord(o: {
     status: o.status,
     currency: ((o.currency || "USD").toUpperCase() as CurrencyType) || "USD",
     orderDate: o.orderDate.toISOString(),
+    businessType: (o.businessType as BusinessType) || "IMPORT",
+    fittingDate: o.fittingDate ? o.fittingDate.toISOString() : null,
+    estimatedDeliveryDate: o.estimatedDeliveryDate
+      ? o.estimatedDeliveryDate.toISOString()
+      : null,
+    measurements: parsedMeasurements,
+    statusHistory: parsedStatusHistory,
     subtotal: Number(o.subtotal),
     depositRequired: Number(o.depositRequired),
     depositPaid: o.depositPaid,
@@ -320,22 +417,41 @@ function mapPrismaOrderToRecord(o: {
     finalPaymentRef: o.finalPaymentRef,
     finalReceiptUrl: o.finalReceiptUrl,
     generalNotes: o.generalNotes,
-    items: o.items.map((item) => ({
-      id: item.id,
-      tenantId: item.tenantId,
-      orderId: item.orderId,
-      title: item.title,
-      originalPrice: item.originalPrice !== null ? Number(item.originalPrice) : null,
-      finalPrice: Number(item.finalPrice),
-      quantity: item.quantity,
-      size: item.size,
-      color: item.color,
-      modelVariant: item.modelVariant,
-      verificationNotes: item.verificationNotes,
-      sourceImageUrl: item.sourceImageUrl,
-      isPhysicallyVerified: item.isPhysicallyVerified,
-      createdAt: item.createdAt.toISOString(),
-    })),
+    items: o.items.map((item) => {
+      let itemMeasurements: Record<string, string | number> | null = null;
+      if (item.measurements) {
+        if (typeof item.measurements === "string") {
+          try {
+            itemMeasurements = JSON.parse(item.measurements);
+          } catch {
+            itemMeasurements = null;
+          }
+        } else if (typeof item.measurements === "object") {
+          itemMeasurements = item.measurements as Record<string, string | number>;
+        }
+      }
+
+      return {
+        id: item.id,
+        tenantId: item.tenantId,
+        orderId: item.orderId,
+        title: item.title,
+        originalPrice:
+          item.originalPrice !== null ? Number(item.originalPrice) : null,
+        finalPrice: Number(item.finalPrice),
+        quantity: item.quantity,
+        size: item.size,
+        color: item.color,
+        modelVariant: item.modelVariant,
+        verificationNotes: item.verificationNotes,
+        serviceType: item.serviceType ?? null,
+        fabricDetails: item.fabricDetails ?? null,
+        measurements: itemMeasurements,
+        sourceImageUrl: item.sourceImageUrl,
+        isPhysicallyVerified: item.isPhysicallyVerified,
+        createdAt: item.createdAt.toISOString(),
+      };
+    }),
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),
   };
@@ -427,6 +543,13 @@ export async function createTenantByAdmin(
       active: true,
       settings: {
         ...DEFAULT_TENANT_SETTINGS,
+        logoUrl: input.logoUrl?.trim() || null,
+        theme: {
+          primaryColor: input.primaryColor || DEFAULT_TENANT_THEME.primaryColor,
+          secondaryColor: input.secondaryColor || DEFAULT_TENANT_THEME.secondaryColor,
+          accentColor: input.primaryColor || DEFAULT_TENANT_THEME.accentColor,
+          preset: input.preset || DEFAULT_TENANT_THEME.preset,
+        },
         paymentAccounts: {
           ...DEFAULT_TENANT_SETTINGS.paymentAccounts,
           BINANCE_USDT: {
@@ -659,6 +782,14 @@ export async function authenticateUser(
 }
 
 /**
+ * Normaliza un número telefónico para comparar duplicados (conserva dígitos o texto limpio).
+ */
+export function normalizePhoneKey(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  return digits.length >= 6 ? digits : phone.trim().toLowerCase();
+}
+
+/**
  * Lista clientes pertenecientes exclusivamente al `tenantId` solicitado.
  */
 export async function listCustomersByTenant(
@@ -671,7 +802,11 @@ export async function listCustomersByTenant(
       tenantId,
       ...(q
         ? {
-            OR: [{ fullName: { contains: q } }, { phone: { contains: q } }],
+            OR: [
+              { fullName: { contains: q } },
+              { phone: { contains: q } },
+              { documentId: { contains: q } },
+            ],
           }
         : {}),
     },
@@ -682,6 +817,7 @@ export async function listCustomersByTenant(
     tenantId: r.tenantId,
     fullName: r.fullName,
     phone: r.phone,
+    documentId: r.documentId ?? null,
     instagram: r.instagram,
     notes: r.notes,
     createdAt: r.createdAt.toISOString(),
@@ -689,18 +825,37 @@ export async function listCustomersByTenant(
 }
 
 /**
- * Registra un nuevo cliente bajo aislamiento estricto de `tenantId`.
+ * Registra un nuevo cliente bajo aislamiento estricto de `tenantId`,
+ * validando que no exista otro cliente con el mismo número de contacto.
  */
 export async function createCustomerForTenant(
   input: z.infer<typeof CreateCustomerSchema>
 ): Promise<CustomerRecord> {
+  const targetPhoneKey = normalizePhoneKey(input.phone);
+  const existingCustomers = await prisma.customer.findMany({
+    where: { tenantId: input.tenantId },
+  });
+
+  const duplicate = existingCustomers.find(
+    (c) =>
+      normalizePhoneKey(c.phone) === targetPhoneKey ||
+      c.phone.trim().toLowerCase() === input.phone.trim().toLowerCase()
+  );
+
+  if (duplicate) {
+    throw new Error(
+      `Ya existe un cliente registrado con el número de contacto "${input.phone.trim()}" (${duplicate.fullName}).`
+    );
+  }
+
   const created = await prisma.customer.create({
     data: {
       tenantId: input.tenantId,
-      fullName: input.fullName,
-      phone: input.phone,
-      instagram: input.instagram ?? null,
-      notes: input.notes ?? null,
+      fullName: input.fullName.trim(),
+      phone: input.phone.trim(),
+      documentId: input.documentId?.trim() || null,
+      instagram: input.instagram?.trim() || null,
+      notes: input.notes?.trim() || null,
     },
   });
   return {
@@ -708,10 +863,86 @@ export async function createCustomerForTenant(
     tenantId: created.tenantId,
     fullName: created.fullName,
     phone: created.phone,
+    documentId: created.documentId,
     instagram: created.instagram,
     notes: created.notes,
     createdAt: created.createdAt.toISOString(),
   };
+}
+
+/**
+ * Actualiza los datos de un cliente (exclusivo para Admin del Tenant),
+ * validando que el número de contacto no pertenezca a otro cliente del mismo negocio.
+ */
+export async function updateCustomerForTenant(
+  input: z.infer<typeof UpdateCustomerSchema>
+): Promise<CustomerRecord> {
+  const current = await prisma.customer.findFirst({
+    where: { id: input.customerId, tenantId: input.tenantId },
+  });
+  if (!current) {
+    throw new Error("El cliente especificado no existe en este negocio.");
+  }
+
+  const targetPhoneKey = normalizePhoneKey(input.phone);
+  const existingCustomers = await prisma.customer.findMany({
+    where: {
+      tenantId: input.tenantId,
+      NOT: { id: input.customerId },
+    },
+  });
+
+  const duplicate = existingCustomers.find(
+    (c) =>
+      normalizePhoneKey(c.phone) === targetPhoneKey ||
+      c.phone.trim().toLowerCase() === input.phone.trim().toLowerCase()
+  );
+
+  if (duplicate) {
+    throw new Error(
+      `Ya existe otro cliente registrado con el número de contacto "${input.phone.trim()}" (${duplicate.fullName}).`
+    );
+  }
+
+  const updated = await prisma.customer.update({
+    where: { id: input.customerId },
+    data: {
+      fullName: input.fullName.trim(),
+      phone: input.phone.trim(),
+      documentId: input.documentId?.trim() || null,
+      instagram: input.instagram?.trim() || null,
+      notes: input.notes?.trim() || null,
+    },
+  });
+
+  return {
+    id: updated.id,
+    tenantId: updated.tenantId,
+    fullName: updated.fullName,
+    phone: updated.phone,
+    documentId: updated.documentId,
+    instagram: updated.instagram,
+    notes: updated.notes,
+    createdAt: updated.createdAt.toISOString(),
+  };
+}
+
+/**
+ * Elimina un cliente del negocio (exclusivo para Admin del Tenant).
+ */
+export async function deleteCustomerForTenant(
+  tenantId: string,
+  customerId: string
+): Promise<void> {
+  const existing = await prisma.customer.findFirst({
+    where: { id: customerId, tenantId },
+  });
+  if (!existing) {
+    throw new Error("El cliente especificado no existe en este negocio.");
+  }
+  await prisma.customer.delete({
+    where: { id: customerId },
+  });
 }
 
 /**
@@ -849,19 +1080,36 @@ export async function listBatchesByTenant(tenantId: string): Promise<OrderBatchR
 }
 
 /**
- * Crea un nuevo Lote de Pedido Consolidado (`OrderBatch`).
+ * Crea un nuevo Lote de Pedido Consolidado (`OrderBatch`),
+ * validando que no exista otro lote o pedido con el mismo identificador (`code`).
  */
 export async function createBatchForTenant(
   input: z.infer<typeof CreateBatchSchema>
 ): Promise<OrderBatchRecord> {
+  const cleanCode = input.code.trim().toUpperCase();
+
+  const existingBatches = await prisma.orderBatch.findMany({
+    where: { tenantId: input.tenantId },
+    select: { id: true, code: true, name: true },
+  });
+
+  const duplicateBatch = existingBatches.find(
+    (b) => b.code.trim().toUpperCase() === cleanCode
+  );
+  if (duplicateBatch) {
+    throw new Error(
+      `Ya existe un lote de pedido con el identificador "${cleanCode}" (${duplicateBatch.name}).`
+    );
+  }
+
   const parsedDate = new Date(input.purchaseDate);
   const validDate = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
 
   const created = await prisma.orderBatch.create({
     data: {
       tenantId: input.tenantId,
-      code: input.code.toUpperCase(),
-      name: input.name,
+      code: cleanCode,
+      name: input.name.trim(),
       purchaseDate: validDate,
       status: input.status ?? "OPEN_FOR_ORDERS",
       trackingRef: input.trackingRef ?? null,
@@ -874,14 +1122,36 @@ export async function createBatchForTenant(
 }
 
 /**
- * Actualiza el estado o fecha de salida de un Lote de Pedido Consolidado.
+ * Actualiza el código, estado, nombre o fecha de salida de un Lote de Pedido Consolidado,
+ * validando que el identificador (`code`) no se duplique.
  */
 export async function updateBatchForTenant(
   input: z.infer<typeof UpdateBatchStatusSchema>
 ): Promise<OrderBatchRecord> {
   const dataToUpdate: Record<string, unknown> = {};
+
+  if (input.code) {
+    const cleanCode = input.code.trim().toUpperCase();
+    const existingBatches = await prisma.orderBatch.findMany({
+      where: {
+        tenantId: input.tenantId,
+        NOT: { id: input.batchId },
+      },
+      select: { id: true, code: true, name: true },
+    });
+    const duplicateBatch = existingBatches.find(
+      (b) => b.code.trim().toUpperCase() === cleanCode
+    );
+    if (duplicateBatch) {
+      throw new Error(
+        `Ya existe otro lote de pedido con el identificador "${cleanCode}" (${duplicateBatch.name}).`
+      );
+    }
+    dataToUpdate.code = cleanCode;
+  }
+
   if (input.status) dataToUpdate.status = input.status;
-  if (input.name) dataToUpdate.name = input.name;
+  if (input.name) dataToUpdate.name = input.name.trim();
   if (input.trackingRef !== undefined) dataToUpdate.trackingRef = input.trackingRef;
   if (input.notes !== undefined) dataToUpdate.notes = input.notes;
   if (input.purchaseDate) {
@@ -903,6 +1173,31 @@ export async function updateBatchForTenant(
     throw new Error("Lote no encontrado para este Tenant.");
   }
   return found;
+}
+
+/**
+ * Elimina un Lote de Pedido Consolidado (exclusivo para Admin del Tenant).
+ * Los pedidos asociados quedan sin lote asignado (`batchId: null`).
+ */
+export async function deleteBatchForTenant(
+  tenantId: string,
+  batchId: string
+): Promise<void> {
+  const existing = await prisma.orderBatch.findFirst({
+    where: { id: batchId, tenantId },
+  });
+  if (!existing) {
+    throw new Error("El lote especificado no existe en este negocio.");
+  }
+  await prisma.$transaction([
+    prisma.order.updateMany({
+      where: { tenantId, batchId },
+      data: { batchId: null },
+    }),
+    prisma.orderBatch.delete({
+      where: { id: batchId },
+    }),
+  ]);
 }
 
 /**
@@ -977,7 +1272,8 @@ export async function getOrderByTenantAndId(
 }
 
 /**
- * Crea un nuevo pedido vinculado al Lote de Salida (`batchId`) seleccionado.
+ * Crea un nuevo pedido vinculado al Lote de Salida (`batchId`) seleccionado,
+ * validando que no exista otro pedido con el mismo identificador.
  */
 export async function createOrderForTenant(
   input: z.infer<typeof CreateOrderSchema>
@@ -987,15 +1283,26 @@ export async function createOrderForTenant(
     throw new Error("El negocio especificado no existe.");
   }
   const depositPct = (tenant.defaultDepositPct || 50) / 100;
+  const orderCurrency: CurrencyType =
+    input.currency || ((tenant.currency?.toUpperCase() as CurrencyType) ?? "USD");
 
-  const subtotal = Number(
-    input.items
-      .reduce((acc, item) => acc + Number(item.finalPrice) * Number(item.quantity || 1), 0)
-      .toFixed(2)
+  const rawSubtotal = input.items.reduce(
+    (acc, item) => acc + Number(item.finalPrice) * Number(item.quantity || 1),
+    0
   );
-  const depositRequired = Number((subtotal * depositPct).toFixed(2));
+  const subtotal =
+    orderCurrency === "COP"
+      ? Math.round(rawSubtotal)
+      : Number(rawSubtotal.toFixed(2));
+  const depositRequired =
+    orderCurrency === "COP"
+      ? Math.round(subtotal * depositPct)
+      : Number((subtotal * depositPct).toFixed(2));
   const depositAmountPaid = input.depositPaid ? depositRequired : 0;
-  const balanceDue = Number((subtotal - depositAmountPaid).toFixed(2));
+  const balanceDue =
+    orderCurrency === "COP"
+      ? Math.round(subtotal - depositAmountPaid)
+      : Number((subtotal - depositAmountPaid).toFixed(2));
   const status: OrderStatusType = input.depositPaid ? "CONFIRMED_DEPOSIT_PAID" : "DRAFT";
 
   let resolvedBatchId = input.batchId ?? null;
@@ -1007,9 +1314,45 @@ export async function createOrderForTenant(
     resolvedBatchId = openBatch?.id ?? null;
   }
 
-  const orderId = `ord-${crypto.randomUUID().slice(0, 8)}`;
-  const orderCurrency: CurrencyType =
-    input.currency || ((tenant.currency?.toUpperCase() as CurrencyType) ?? "USD");
+  let orderId = input.customOrderId?.trim() || "";
+  if (orderId) {
+    const existingOrders = await prisma.order.findMany({
+      where: { tenantId: input.tenantId },
+      select: { id: true },
+    });
+    const duplicateByTenant = existingOrders.find(
+      (o) => o.id.trim().toLowerCase() === orderId.toLowerCase()
+    );
+    const duplicateGlobal = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true },
+    });
+    if (duplicateByTenant || duplicateGlobal) {
+      throw new Error(
+        `Ya existe un pedido registrado con el identificador "${orderId}". Por favor usa un identificador distinto.`
+      );
+    }
+  } else {
+    orderId = `ord-${crypto.randomUUID().slice(0, 8)}`;
+    while (await prisma.order.findUnique({ where: { id: orderId }, select: { id: true } })) {
+      orderId = `ord-${crypto.randomUUID().slice(0, 8)}`;
+    }
+  }
+
+  const initialEvent: OrderStatusEvent = {
+    id: `ev-${crypto.randomUUID().slice(0, 8)}`,
+    status,
+    label:
+      status === "CONFIRMED_DEPOSIT_PAID"
+        ? (input.businessType === "TAILORING" ? "Seña Abonada / Pedido Confirmado" : "50% Pagado • Confirmado")
+        : (input.businessType === "TAILORING" ? "Presupuesto / En Toma de Medidas" : "Borrador de Pedido"),
+    note:
+      status === "CONFIRMED_DEPOSIT_PAID"
+        ? `Seña registrada con método ${input.paymentMethod}. Pedido ingresado a producción.`
+        : "Pedido registrado en el sistema.",
+    createdAt: new Date().toISOString(),
+    authorName: "Taller / Tienda",
+  };
 
   const created = await prisma.order.create({
     data: {
@@ -1019,6 +1362,15 @@ export async function createOrderForTenant(
       customerId: input.customerId,
       status,
       currency: orderCurrency,
+      businessType: input.businessType || "IMPORT",
+      fittingDate: input.fittingDate ? new Date(input.fittingDate) : null,
+      estimatedDeliveryDate: input.estimatedDeliveryDate ? new Date(input.estimatedDeliveryDate) : null,
+      measurements: input.measurements
+        ? typeof input.measurements === "string"
+          ? input.measurements
+          : JSON.stringify(input.measurements)
+        : undefined,
+      statusHistory: JSON.stringify([initialEvent]),
       orderDate: new Date(),
       subtotal,
       depositRequired,
@@ -1041,14 +1393,176 @@ export async function createOrderForTenant(
           color: item.color ?? null,
           modelVariant: item.modelVariant ?? null,
           verificationNotes: item.verificationNotes ?? null,
+          serviceType: item.serviceType ?? null,
+          fabricDetails: item.fabricDetails ?? null,
+          measurements: item.measurements
+            ? typeof item.measurements === "string"
+              ? item.measurements
+              : JSON.stringify(item.measurements)
+            : undefined,
           sourceImageUrl: item.sourceImageUrl ?? null,
           isPhysicallyVerified: false,
         })),
       },
-    },
+    } as any,
   });
 
   return (await getOrderByTenantAndId(input.tenantId, created.id))!;
+}
+
+/**
+ * Actualiza un pedido completo y sus productos (exclusivo para Admin del Tenant),
+ * recalculando subtotales, seña y saldo pendiente en la moneda del pedido.
+ */
+export async function updateOrderForTenant(
+  input: z.infer<typeof UpdateOrderSchema>
+): Promise<OrderRecord> {
+  const existing = await prisma.order.findFirst({
+    where: { id: input.orderId, tenantId: input.tenantId },
+    include: { items: true },
+  });
+  if (!existing) {
+    throw new Error("El pedido especificado no existe en este negocio.");
+  }
+
+  const tenant = await getTenantByIdOrSlug(input.tenantId);
+  const depositPct = ((tenant?.defaultDepositPct ?? 50) || 50) / 100;
+  const nextCurrency: CurrencyType =
+    input.currency ||
+    ((existing.currency?.toUpperCase() as CurrencyType) ?? "USD");
+
+  const nextStatus = input.status ?? existing.status;
+  const isCompleted = nextStatus === "COMPLETED" || existing.finalPaymentPaid;
+
+  await prisma.$transaction(async (tx) => {
+    let subtotal = Number(existing.subtotal);
+    let depositRequired = Number(existing.depositRequired);
+    let depositAmountPaid = Number(existing.depositAmountPaid);
+    let balanceDue = Number(existing.balanceDue);
+
+    if (input.items && input.items.length > 0) {
+      const rawSubtotal = input.items.reduce(
+        (acc, item) =>
+          acc + Number(item.finalPrice) * Number(item.quantity || 1),
+        0
+      );
+      subtotal =
+        nextCurrency === "COP"
+          ? Math.round(rawSubtotal)
+          : Number(rawSubtotal.toFixed(2));
+      depositRequired =
+        nextCurrency === "COP"
+          ? Math.round(subtotal * depositPct)
+          : Number((subtotal * depositPct).toFixed(2));
+      depositAmountPaid = existing.depositPaid ? depositRequired : 0;
+      balanceDue = isCompleted
+        ? 0
+        : nextCurrency === "COP"
+        ? Math.round(subtotal - depositAmountPaid)
+        : Number((subtotal - depositAmountPaid).toFixed(2));
+
+      // Preservar estado de verificación física si el ítem ya existía
+      const verifiedById = new Map<string, boolean>(
+        existing.items.map((it) => [it.id, it.isPhysicallyVerified])
+      );
+
+      await tx.orderItem.deleteMany({
+        where: { orderId: input.orderId, tenantId: input.tenantId },
+      });
+
+      await tx.orderItem.createMany({
+        data: input.items.map((item) => ({
+          tenantId: input.tenantId,
+          orderId: input.orderId,
+          title: item.title.trim(),
+          originalPrice: item.originalPrice ?? null,
+          finalPrice: item.finalPrice,
+          quantity: item.quantity || 1,
+          size: item.size?.trim() || null,
+          color: item.color?.trim() || null,
+          modelVariant: item.modelVariant?.trim() || null,
+          verificationNotes: item.verificationNotes?.trim() || null,
+          sourceImageUrl: item.sourceImageUrl ?? null,
+          serviceType: item.serviceType ?? null,
+          fabricDetails: item.fabricDetails ?? null,
+          measurements: item.measurements
+            ? typeof item.measurements === "string"
+              ? item.measurements
+              : JSON.stringify(item.measurements)
+            : undefined,
+          isPhysicallyVerified: item.id
+            ? (verifiedById.get(item.id) ?? false)
+            : false,
+        })) as any,
+      });
+    } else if (isCompleted) {
+      balanceDue = 0;
+    }
+
+    await tx.order.update({
+      where: { id: input.orderId },
+      data: {
+        ...(input.batchId !== undefined ? { batchId: input.batchId } : {}),
+        ...(input.customerId ? { customerId: input.customerId } : {}),
+        status: nextStatus,
+        currency: nextCurrency,
+        ...(input.businessType !== undefined ? { businessType: input.businessType } : {}),
+        ...(input.fittingDate !== undefined
+          ? { fittingDate: input.fittingDate ? new Date(input.fittingDate) : null }
+          : {}),
+        ...(input.estimatedDeliveryDate !== undefined
+          ? { estimatedDeliveryDate: input.estimatedDeliveryDate ? new Date(input.estimatedDeliveryDate) : null }
+          : {}),
+        ...(input.measurements !== undefined
+          ? {
+              measurements: input.measurements
+                ? typeof input.measurements === "string"
+                  ? input.measurements
+                  : JSON.stringify(input.measurements)
+                : undefined,
+            }
+          : {}),
+        subtotal,
+        depositRequired,
+        depositAmountPaid,
+        balanceDue,
+        finalPaymentPaid: isCompleted,
+        ...(input.paymentMethod !== undefined
+          ? { paymentMethod: input.paymentMethod }
+          : {}),
+        ...(input.paymentReference !== undefined
+          ? { paymentReference: input.paymentReference }
+          : {}),
+        ...(input.generalNotes !== undefined
+          ? { generalNotes: input.generalNotes }
+          : {}),
+      } as any,
+    });
+  });
+
+  const updated = await getOrderByTenantAndId(input.tenantId, input.orderId);
+  if (!updated) {
+    throw new Error("Error al recuperar el pedido actualizado.");
+  }
+  return updated;
+}
+
+/**
+ * Elimina un pedido y sus productos asociados (exclusivo para Admin del Tenant).
+ */
+export async function deleteOrderForTenant(
+  tenantId: string,
+  orderId: string
+): Promise<void> {
+  const existing = await prisma.order.findFirst({
+    where: { id: orderId, tenantId },
+  });
+  if (!existing) {
+    throw new Error("El pedido especificado no existe en este negocio.");
+  }
+  await prisma.order.delete({
+    where: { id: orderId },
+  });
 }
 
 /**
@@ -1121,4 +1635,290 @@ export async function settleFinalPaymentForTenant(
     throw new Error("Orden no encontrada en este Tenant.");
   }
   return updated;
+}
+
+export interface PublicOrderTrackRecord {
+  id: string;
+  orderDate: string;
+  status: OrderStatusType;
+  businessType: BusinessType;
+  currency: CurrencyType;
+  fittingDate: string | null;
+  estimatedDeliveryDate: string | null;
+  generalNotes: string | null;
+  measurements: Record<string, string | number> | null;
+  statusHistory: OrderStatusEvent[];
+  subtotal: number;
+  depositRequired: number;
+  depositAmountPaid: number;
+  balanceDue: number;
+  finalPaymentPaid: boolean;
+  tenant: {
+    id: string;
+    name: string;
+    slug: string;
+    logoUrl: string | null;
+    theme?: TenantTheme;
+    currency: string;
+    phone?: string | null;
+    whatsappConfig?: TenantWhatsAppConfig;
+  };
+  customer: {
+    displayName: string;
+    documentId?: string | null;
+    phone?: string | null;
+  };
+  items: Array<{
+    id: string;
+    title: string;
+    quantity: number;
+    finalPrice: number;
+    size: string | null;
+    color: string | null;
+    serviceType: string | null;
+    fabricDetails: string | null;
+    measurements: Record<string, string | number> | null;
+    sourceImageUrl: string | null;
+    isPhysicallyVerified: boolean;
+  }>;
+}
+
+export function getStatusLabelSpanish(
+  status: OrderStatusType,
+  businessType: BusinessType = "IMPORT"
+): string {
+  if (businessType === "TAILORING") {
+    switch (status) {
+      case "DRAFT":
+        return "Presupuesto / En Toma de Medidas";
+      case "CONFIRMED_DEPOSIT_PAID":
+        return "Seña Abonada / En Espera de Materiales";
+      case "MEASUREMENTS_TAKEN":
+        return "Medidas Listas / Patronaje y Corte";
+      case "IN_PRODUCTION":
+        return "En Confección / Costura Activa";
+      case "READY_FOR_FITTING":
+        return "Listo para Prueba (Fitting)";
+      case "FINAL_ADJUSTMENTS":
+        return "En Ajustes Finales";
+      case "READY_FOR_DELIVERY":
+        return "Listo para Entrega / Retiro";
+      case "COMPLETED":
+        return "Entregado y Liquidado (100%)";
+      case "CANCELLED":
+        return "Cancelado";
+      default:
+        return status;
+    }
+  }
+
+  switch (status) {
+    case "DRAFT":
+      return "Borrador";
+    case "CONFIRMED_DEPOSIT_PAID":
+      return "Por Comprar (50% Pagado)";
+    case "PURCHASED_AT_ORIGIN":
+      return "Comprado en Origen";
+    case "IN_TRANSIT":
+      return "En Tránsito Internacional";
+    case "RECEIVED_IN_WAREHOUSE":
+      return "En Almacén / Cotejo";
+    case "MEASUREMENTS_TAKEN":
+      return "Patronaje y Corte";
+    case "IN_PRODUCTION":
+      return "En Confección";
+    case "READY_FOR_FITTING":
+      return "Listo para Prueba";
+    case "FINAL_ADJUSTMENTS":
+      return "En Ajustes Finales";
+    case "READY_FOR_DELIVERY":
+      return "Listo para Entregar";
+    case "COMPLETED":
+      return "Culminado / Entregado";
+    case "CANCELLED":
+      return "Cancelado";
+    default:
+      return status;
+  }
+}
+
+/**
+ * Agrega un nuevo evento a la bitácora pública de avances de un pedido
+ * y opcionalmente actualiza su estado.
+ */
+export async function addOrderStatusEventForTenant(
+  input: z.infer<typeof AddOrderStatusEventSchema>
+): Promise<OrderRecord> {
+  const existing = await prisma.order.findFirst({
+    where: { id: input.orderId, tenantId: input.tenantId },
+  });
+  if (!existing) {
+    throw new Error("El pedido especificado no existe en este negocio.");
+  }
+
+  let currentHistory: OrderStatusEvent[] = [];
+  if (existing.statusHistory) {
+    if (typeof existing.statusHistory === "string") {
+      try {
+        currentHistory = JSON.parse(existing.statusHistory);
+      } catch {
+        currentHistory = [];
+      }
+    } else if (Array.isArray(existing.statusHistory)) {
+      currentHistory = existing.statusHistory as unknown as OrderStatusEvent[];
+    }
+  }
+
+  const nextStatus = input.status || existing.status;
+  const newEvent: OrderStatusEvent = {
+    id: `ev-${crypto.randomUUID().slice(0, 8)}`,
+    status: nextStatus,
+    label: getStatusLabelSpanish(
+      nextStatus,
+      (existing.businessType as BusinessType) || "IMPORT"
+    ),
+    note: input.note.trim(),
+    createdAt: new Date().toISOString(),
+    authorName: input.authorName?.trim() || "Taller / Tienda",
+  };
+
+  const updatedHistory = [newEvent, ...currentHistory];
+
+  await prisma.order.update({
+    where: { id: input.orderId },
+    data: {
+      status: nextStatus,
+      statusHistory: JSON.stringify(updatedHistory),
+    },
+  });
+
+  const updated = await getOrderByTenantAndId(input.tenantId, input.orderId);
+  if (!updated) {
+    throw new Error("Error al recuperar el pedido tras agregar evento.");
+  }
+  return updated;
+}
+
+/**
+ * Consulta pública de seguimiento de pedido por ID (sin requerir autenticación).
+ * Protege datos bancarios privados mientras retorna línea de tiempo, estado de confección y balance.
+ */
+export async function getPublicOrderTrackRecord(
+  orderId: string
+): Promise<PublicOrderTrackRecord | null> {
+  await ensureDatabaseSchema();
+  const row = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: {
+      tenant: true,
+      customer: true,
+      items: {
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+
+  if (!row || !row.tenant || !row.customer) {
+    return null;
+  }
+
+  const tenantSettings = normalizeTenantSettings(row.tenant.settings);
+
+  let parsedMeasurements: Record<string, string | number> | null = null;
+  if (row.measurements) {
+    if (typeof row.measurements === "string") {
+      try {
+        parsedMeasurements = JSON.parse(row.measurements);
+      } catch {
+        parsedMeasurements = null;
+      }
+    } else if (typeof row.measurements === "object") {
+      parsedMeasurements = row.measurements as Record<string, string | number>;
+    }
+  }
+
+  let parsedStatusHistory: OrderStatusEvent[] = [];
+  if (row.statusHistory) {
+    if (typeof row.statusHistory === "string") {
+      try {
+        parsedStatusHistory = JSON.parse(row.statusHistory);
+      } catch {
+        parsedStatusHistory = [];
+      }
+    } else if (Array.isArray(row.statusHistory)) {
+      parsedStatusHistory = row.statusHistory as unknown as OrderStatusEvent[];
+    }
+  }
+
+  // Nombre de cliente seguro para vista pública (Nombre de pila y primer apellido)
+  const fullNameParts = row.customer.fullName.trim().split(/\s+/);
+  const displayName =
+    fullNameParts.length > 1
+      ? `${fullNameParts[0]} ${fullNameParts[1]}`
+      : fullNameParts[0] || "Cliente";
+
+  return {
+    id: row.id,
+    orderDate: row.orderDate.toISOString(),
+    status: row.status,
+    businessType: (row.businessType as BusinessType) || "IMPORT",
+    currency: ((row.currency || "USD").toUpperCase() as CurrencyType) || "USD",
+    fittingDate: row.fittingDate ? row.fittingDate.toISOString() : null,
+    estimatedDeliveryDate: row.estimatedDeliveryDate
+      ? row.estimatedDeliveryDate.toISOString()
+      : null,
+    generalNotes: row.generalNotes,
+    measurements: parsedMeasurements,
+    statusHistory: parsedStatusHistory,
+    subtotal: Number(row.subtotal),
+    depositRequired: Number(row.depositRequired),
+    depositAmountPaid: Number(row.depositAmountPaid),
+    balanceDue: Number(row.balanceDue),
+    finalPaymentPaid: row.finalPaymentPaid,
+    tenant: {
+      id: row.tenant.id,
+      name: row.tenant.name,
+      slug: row.tenant.slug,
+      logoUrl: tenantSettings.logoUrl ?? null,
+      theme: tenantSettings.theme ?? DEFAULT_TENANT_THEME,
+      currency: row.tenant.currency,
+      phone: tenantSettings.whatsappConfig?.phoneNumber || null,
+      whatsappConfig: tenantSettings.whatsappConfig ?? DEFAULT_WHATSAPP_CONFIG,
+    },
+    customer: {
+      displayName,
+      documentId: row.customer.documentId || null,
+      phone: row.customer.phone || null,
+    },
+    items: row.items.map((item) => {
+      let itemMeasurements: Record<string, string | number> | null = null;
+      if (item.measurements) {
+        if (typeof item.measurements === "string") {
+          try {
+            itemMeasurements = JSON.parse(item.measurements);
+          } catch {
+            itemMeasurements = null;
+          }
+        } else if (typeof item.measurements === "object") {
+          itemMeasurements = item.measurements as Record<
+            string,
+            string | number
+          >;
+        }
+      }
+      return {
+        id: item.id,
+        title: item.title,
+        quantity: item.quantity,
+        finalPrice: Number(item.finalPrice),
+        size: item.size,
+        color: item.color,
+        serviceType: item.serviceType ?? null,
+        fabricDetails: item.fabricDetails ?? null,
+        measurements: itemMeasurements,
+        sourceImageUrl: item.sourceImageUrl,
+        isPhysicallyVerified: item.isPhysicallyVerified,
+      };
+    }),
+  };
 }

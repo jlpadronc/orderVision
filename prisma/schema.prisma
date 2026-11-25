@@ -22,12 +22,16 @@ enum BatchStatus {
 }
 
 enum OrderStatus {
-  DRAFT                    // En armado de carrito
-  CONFIRMED_DEPOSIT_PAID   // 50% pagado y comprobante adjunto
-  PURCHASED_AT_ORIGIN      // Pedido comprado en página de Shein/proveedor
+  DRAFT                    // Presupuesto / En armado de carrito / En toma de medidas
+  CONFIRMED_DEPOSIT_PAID   // 50% / Seña abonada y comprobante adjunto
+  PURCHASED_AT_ORIGIN      // Pedido comprado en proveedor / origen
   IN_TRANSIT               // Viajando al país de destino
   RECEIVED_IN_WAREHOUSE    // En almacén listo para cotejo
-  READY_FOR_DELIVERY       // Validado y listo para entregar
+  MEASUREMENTS_TAKEN       // Medidas tomadas / Patronaje y corte
+  IN_PRODUCTION            // En confección / Costura activa
+  READY_FOR_FITTING        // Lista para prueba (Fitting)
+  FINAL_ADJUSTMENTS        // En ajustes finales
+  READY_FOR_DELIVERY       // Validado y listo para entregar / retirar
   COMPLETED                // 100% pagado y entregado
   CANCELLED
 }
@@ -37,6 +41,7 @@ enum PaymentMethod {
   BANCOLOMBIA
   NEQUI
   CASH_USD
+  CASH_COP
   PAGO_MOVIL_VES
   ZINLI
   OTHER
@@ -78,6 +83,7 @@ model Customer {
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   fullName  String
   phone     String   // Número de WhatsApp principal
+  documentId String? // Cédula de identidad / DNI
   instagram String?
   notes     String?
   orders    Order[]
@@ -135,6 +141,14 @@ model Order {
   finalReceiptUrl     String?
 
   generalNotes        String?
+
+  // Modo de negocio y soporte para costura / sastrería / confección personalizada
+  businessType          String?        @default("IMPORT") // "IMPORT" | "TAILORING" | "HYBRID"
+  fittingDate           DateTime?      // Fecha programada para prueba de la prenda (Fitting)
+  estimatedDeliveryDate DateTime?      // Fecha estimada / pactada de entrega
+  measurements          Json?          // Medidas corporales (busto, cintura, cadera, talle, etc.)
+  statusHistory         Json?          // Bitácora pública de avances [{ id, status, label, note, createdAt, authorName }]
+
   items               OrderItem[]
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
@@ -157,11 +171,16 @@ model OrderItem {
   finalPrice           Decimal  @db.Decimal(14, 2) // Precio de página / venta
   quantity             Int      @default(1)
 
-  // Especificaciones críticas para cotejo físico
-  size                 String?  // Talla (XS, S, M, L, XL, número de zapato, etc.)
+  // Especificaciones críticas para cotejo físico o confección
+  size                 String?  // Talla (XS, S, M, L, XL, o "A Medida")
   color                String?  // Color específico
   modelVariant         String?  // Código de modelo o variación
   verificationNotes    String?  // Observaciones al validar cuando llega el paquete
+
+  // Campos específicos para confección y costura
+  serviceType          String?  // Confección a Medida, Arreglo / Ajuste, Diseño Exclusivo
+  fabricDetails        String?  // Tela provista por cliente o taller, color de hilo, forro
+  measurements         Json?    // Medidas específicas para esta prenda en particular
 
   sourceImageUrl       String?  // Captura enviada por el cliente
   isPhysicallyVerified Boolean  @default(false) // Check de validación física al recibir

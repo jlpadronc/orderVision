@@ -35,6 +35,11 @@ interface BottomNavDockProps {
 export function BottomNavDock({ sessionUser }: BottomNavDockProps) {
   const pathname = usePathname();
 
+  // No renderizar en la vista de seguimiento público de pedidos
+  if (pathname.startsWith("/track")) {
+    return null;
+  }
+
   // Solo mostrar el dock inferior cuando hay un usuario de Tenant autenticado
   if (!sessionUser || sessionUser.role === "SUPERADMIN") {
     return null;
@@ -59,7 +64,7 @@ export function BottomNavDock({ sessionUser }: BottomNavDockProps) {
               href={item.href}
               className={`flex min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-[11px] font-medium transition-colors ${
                 isActive
-                  ? "text-rose-400 bg-rose-500/10"
+                  ? "text-brand-primary bg-brand-soft font-bold border border-brand-soft/50 shadow-xs"
                   : "text-slate-400 hover:text-slate-200"
               }`}
             >

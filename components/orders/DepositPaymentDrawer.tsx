@@ -51,6 +51,12 @@ export const PAYMENT_METHOD_OPTIONS: PaymentMethodOption[] = [
     accentClass: "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
   },
   {
+    value: "CASH_COP",
+    label: "Efectivo COP",
+    badge: "COP • Taquilla",
+    accentClass: "border-teal-500/40 bg-teal-500/10 text-teal-300",
+  },
+  {
     value: "PAGO_MOVIL_VES",
     label: "Bolívares / Pago Móvil",
     badge: "VES • Tasa BCV",
@@ -118,6 +124,8 @@ export function DepositPaymentDrawer({
   const activeAccountInfo =
     tenant.settings?.paymentAccounts?.[paymentMethod] ?? null;
 
+  const isCash = paymentMethod === "CASH_USD" || paymentMethod === "CASH_COP";
+
   async function handleReceiptUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -163,11 +171,11 @@ export function DepositPaymentDrawer({
     setErrorMsg(null);
 
     if (!depositPaid) {
-      setErrorMsg("Debes activar el interruptor [✓ 50% de Seña Pagado] para confirmar el pedido.");
+      setErrorMsg(`Debes activar el interruptor de seña pagada (${tenant.defaultDepositPct || 50}%) para confirmar el pedido.`);
       return;
     }
 
-    if (paymentReference.trim().length < 2) {
+    if (!isCash && paymentReference.trim().length < 2) {
       setErrorMsg("Ingresa el número de referencia bancaria, Pago Móvil o Hash de Binance.");
       return;
     }
@@ -175,7 +183,7 @@ export function DepositPaymentDrawer({
     await onConfirmOrder({
       depositPaid,
       paymentMethod,
-      paymentReference: paymentReference.trim(),
+      paymentReference: paymentReference.trim() || (isCash ? "EFECTIVO" : ""),
       receiptImageUrl,
       generalNotes: generalNotes.trim(),
     });
@@ -190,7 +198,7 @@ export function DepositPaymentDrawer({
     >
       <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-800 bg-slate-900/95 px-5 py-4 backdrop-blur-md">
         <div>
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-rose-400">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-brand-primary">
             Cierre y Confirmación de Seña
           </span>
           <h2 id="deposit-drawer-title" className="text-lg font-bold text-white">
@@ -268,7 +276,7 @@ export function DepositPaymentDrawer({
                   htmlFor={`pm-${option.value}`}
                   className={`flex min-h-[52px] cursor-pointer items-center justify-between rounded-xl border px-3.5 py-2.5 transition-all ${
                     selected
-                      ? "border-rose-500 bg-rose-500/15 ring-1 ring-rose-500"
+                      ? "border-brand-primary bg-brand-soft ring-1 ring-brand-primary"
                       : "border-slate-800 bg-slate-950/60 hover:border-slate-700"
                   }`}
                 >
@@ -324,19 +332,25 @@ export function DepositPaymentDrawer({
             htmlFor="payment-reference-input"
             className="mb-1.5 block text-sm font-semibold text-slate-200"
           >
-            Número de Referencia / Hash de Binance *
+            {isCash
+              ? "Detalle o Recibo en Efectivo (Opcional)"
+              : "Número de Referencia / Hash de Binance *"}
           </label>
           <input
             id="payment-reference-input"
             name="paymentReference"
             type="text"
-            required
+            required={!isCash}
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
             enterKeyHint="done"
-            placeholder="Ej. 00948219 o Order ID Binance USDT"
+            placeholder={
+              isCash
+                ? "Opcional: Nro de recibo, caja o nota"
+                : "Ej. 00948219 o Order ID Binance USDT"
+            }
             value={paymentReference}
             onChange={(e) => {
               setPaymentReference(e.target.value);
@@ -352,7 +366,9 @@ export function DepositPaymentDrawer({
             htmlFor="receipt-upload-input"
             className="mb-1.5 block text-sm font-semibold text-slate-200"
           >
-            Comprobante de Pago Adjunto (Captura / Recibo)
+            {isCash
+              ? "Comprobante de Pago Adjunto (Opcional)"
+              : "Comprobante de Pago Adjunto (Captura / Recibo)"}
           </label>
           <label
             htmlFor="receipt-upload-input"
@@ -428,7 +444,7 @@ export function DepositPaymentDrawer({
           <button
             type="submit"
             disabled={isSubmitting || uploadingReceipt}
-            className="flex min-h-[54px] w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-rose-500 to-purple-600 px-5 py-3.5 text-base font-bold text-white shadow-lg shadow-rose-500/25 disabled:opacity-50"
+            className="flex min-h-[54px] w-full items-center justify-center gap-2 rounded-2xl btn-brand-gradient px-5 py-3.5 text-base font-bold text-white shadow-lg disabled:opacity-50"
           >
             {isSubmitting ? (
               <>

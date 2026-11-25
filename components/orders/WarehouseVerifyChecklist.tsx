@@ -173,8 +173,11 @@ export function WarehouseVerifyChecklist({
   ) {
     e.preventDefault();
     setSettleError(null);
-    if (finalPaymentRef.trim().length < 2) {
-      setSettleError("Ingresa la referencia del pago del 50% restante.");
+    const isCash =
+      finalPaymentMethod === "CASH_USD" || finalPaymentMethod === "CASH_COP";
+
+    if (!isCash && finalPaymentRef.trim().length < 2) {
+      setSettleError("Ingresa la referencia bancaria o hash del pago restante.");
       return;
     }
 
@@ -186,7 +189,7 @@ export function WarehouseVerifyChecklist({
         body: JSON.stringify({
           tenantId: tenant.id,
           finalPaymentMethod,
-          finalPaymentRef: finalPaymentRef.trim(),
+          finalPaymentRef: finalPaymentRef.trim() || (isCash ? "EFECTIVO" : ""),
           finalReceiptUrl,
           markCompleted: true,
         }),
@@ -524,11 +527,23 @@ export function WarehouseVerifyChecklist({
 
           <div>
             <label className="mb-1 block text-xs text-slate-300">
-              Referencia de Pago Final *
+              {finalPaymentMethod === "CASH_USD" ||
+              finalPaymentMethod === "CASH_COP"
+                ? "Referencia o Detalle en Efectivo (Opcional)"
+                : "Referencia de Pago Final *"}
             </label>
             <input
               type="text"
-              required
+              required={
+                finalPaymentMethod !== "CASH_USD" &&
+                finalPaymentMethod !== "CASH_COP"
+              }
+              placeholder={
+                finalPaymentMethod === "CASH_USD" ||
+                finalPaymentMethod === "CASH_COP"
+                  ? "Opcional: Nro de recibo o nota"
+                  : "Nro de referencia o hash"
+              }
               value={finalPaymentRef}
               onChange={(e) => setFinalPaymentRef(e.target.value)}
               className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"

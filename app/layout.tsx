@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { resolveActiveTenant } from "@/lib/tenantContext";
+import { DEFAULT_TENANT_THEME } from "@/lib/validations/schemas";
 import { MobileHeader } from "@/components/layout/MobileHeader";
 import { BottomNavDock } from "@/components/layout/BottomNavDock";
 
@@ -23,10 +24,46 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const { activeTenant, sessionUser } = await resolveActiveTenant();
+  const theme = activeTenant?.settings?.theme ?? DEFAULT_TENANT_THEME;
+  const primaryColor = theme.primaryColor || "#e11d48";
+  const secondaryColor = theme.secondaryColor || "#9333ea";
+  const accentColor = theme.accentColor || primaryColor;
 
   return (
     <html lang="es">
-      <body className="min-h-screen bg-[#090d16] text-slate-100 antialiased pb-20 md:pb-10">
+      <head>
+        <script
+          id="theme-initializer"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var pref = localStorage.getItem('ordervision_theme_preference');
+                  if (pref === 'dark' || pref === 'light') {
+                    document.documentElement.setAttribute('data-theme', pref);
+                  } else {
+                    document.documentElement.removeAttribute('data-theme');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+        <style
+          id="tenant-theme-variables"
+          dangerouslySetInnerHTML={{
+            __html: `
+              :root {
+                --brand-primary: ${primaryColor};
+                --brand-secondary: ${secondaryColor};
+                --brand-accent: ${accentColor};
+                --brand-gradient: linear-gradient(135deg, ${primaryColor}, ${secondaryColor});
+              }
+            `,
+          }}
+        />
+      </head>
+      <body className="min-h-screen antialiased pb-20 md:pb-10 transition-colors duration-200">
         <MobileHeader
           activeTenant={activeTenant}
           sessionUser={sessionUser}

@@ -2,6 +2,7 @@ import React from "react";
 import { requireTenantSession } from "@/lib/tenantContext";
 import {
   listBatchesByTenant,
+  listCustomersByTenant,
   listOrdersByTenant,
 } from "@/lib/repositories/multiTenantRepository";
 import { BatchesDashboardClient } from "@/components/orders/BatchesDashboardClient";
@@ -9,10 +10,11 @@ import { BatchesDashboardClient } from "@/components/orders/BatchesDashboardClie
 export const dynamic = "force-dynamic";
 
 export default async function HomeOrdersDashboard() {
-  const { activeTenant } = await requireTenantSession();
-  const [batches, allOrders] = await Promise.all([
+  const { activeTenant, sessionUser } = await requireTenantSession();
+  const [batches, allOrders, customers] = await Promise.all([
     listBatchesByTenant(activeTenant.id),
     listOrdersByTenant(activeTenant.id),
+    listCustomersByTenant(activeTenant.id),
   ]);
 
   const unassignedOrders = allOrders.filter((o) => !o.batchId);
@@ -22,6 +24,8 @@ export default async function HomeOrdersDashboard() {
       tenant={activeTenant}
       initialBatches={batches}
       unassignedOrders={unassignedOrders}
+      initialCustomers={customers}
+      userRole={sessionUser.role}
     />
   );
 }

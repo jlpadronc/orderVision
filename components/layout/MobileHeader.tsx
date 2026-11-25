@@ -11,6 +11,7 @@ import {
   Settings,
   ShieldAlert,
 } from "lucide-react";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import type {
   TenantRecord,
   UserRecord,
@@ -27,6 +28,11 @@ export function MobileHeader({
 }: MobileHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
+
+  // No renderizar en la vista pública de seguimiento de pedido del cliente
+  if (pathname.startsWith("/track")) {
+    return null;
+  }
 
   async function handleLogout() {
     await fetch("/api/auth", { method: "DELETE" });
@@ -50,6 +56,7 @@ export function MobileHeader({
               </p>
             </div>
           </div>
+          <ThemeToggle />
         </div>
       </header>
     );
@@ -73,11 +80,26 @@ export function MobileHeader({
         <div className="flex items-center gap-2.5">
           <Link
             href={isSuperAdmin ? "/admin" : "/"}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-purple-600 text-xs font-extrabold text-white"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg overflow-hidden border border-slate-700/80 shadow-sm"
+            style={{
+              background: isSuperAdmin
+                ? "linear-gradient(135deg, #e11d48, #9333ea)"
+                : `linear-gradient(135deg, ${activeTenant?.settings?.theme?.primaryColor || "#e11d48"}, ${activeTenant?.settings?.theme?.secondaryColor || "#9333ea"})`,
+            }}
           >
-            {isSuperAdmin
-              ? "SA"
-              : (activeTenant?.name.slice(0, 2).toUpperCase() ?? "OV")}
+            {isSuperAdmin ? (
+              <span className="text-xs font-extrabold text-white">SA</span>
+            ) : activeTenant?.settings?.logoUrl ? (
+              <img
+                src={activeTenant.settings.logoUrl}
+                alt={activeTenant.name}
+                className="h-full w-full object-contain bg-white/10 p-0.5"
+              />
+            ) : (
+              <span className="text-xs font-extrabold text-white">
+                {activeTenant?.name.slice(0, 2).toUpperCase() ?? "OV"}
+              </span>
+            )}
           </Link>
 
           <div>
@@ -130,7 +152,7 @@ export function MobileHeader({
                   href={item.href}
                   className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${
                     isActive
-                      ? "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                      ? "bg-brand-soft text-brand-primary border border-brand-soft shadow-xs"
                       : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
                   }`}
                 >
@@ -142,8 +164,9 @@ export function MobileHeader({
           </nav>
         )}
 
-        {/* Usuario autenticado + Cerrar Sesión */}
+        {/* Usuario autenticado + Cerrar Sesión + Selector de Tema */}
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <div className="hidden sm:flex flex-col items-end">
             <span className="text-xs font-semibold text-slate-200 leading-none">
               {sessionUser.name}
@@ -160,7 +183,7 @@ export function MobileHeader({
             type="button"
             onClick={handleLogout}
             title="Cerrar sesión"
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:border-rose-500/40 hover:text-rose-300"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:border-brand-soft hover:text-brand-primary"
           >
             <LogOut className="h-3.5 w-3.5" />
             <span>Salir</span>

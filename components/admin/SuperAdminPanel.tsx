@@ -314,34 +314,52 @@ export function SuperAdminPanel({
                     : "border-rose-500/40 bg-rose-950/15"
                 }`}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-base font-extrabold text-white">
-                        {tenant.name}
-                      </h2>
-                      <span className="font-mono text-xs text-slate-400">
-                        /{tenant.slug}
-                      </span>
-                      <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-300">
-                        {tenant.currency}
-                      </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                          tenant.active
-                            ? "bg-emerald-500/20 text-emerald-300"
-                            : "bg-rose-500/20 text-rose-300"
-                        }`}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    {tenant.settings?.logoUrl ? (
+                      <img
+                        src={tenant.settings.logoUrl}
+                        alt={tenant.name}
+                        className="h-10 w-10 rounded-xl object-contain bg-white/10 p-1 border border-slate-700 shrink-0 shadow-sm"
+                      />
+                    ) : (
+                      <div
+                        className="h-10 w-10 rounded-xl text-white flex items-center justify-center shrink-0 border border-white/20 shadow-sm font-bold text-xs"
+                        style={{
+                          background: `linear-gradient(135deg, ${tenant.settings?.theme?.primaryColor || "#e11d48"}, ${tenant.settings?.theme?.secondaryColor || "#9333ea"})`,
+                        }}
                       >
-                        {tenant.active ? "Servicio Activo" : "Suspendido"}
-                      </span>
+                        {tenant.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-base font-extrabold text-white">
+                          {tenant.name}
+                        </h2>
+                        <span className="font-mono text-xs text-slate-400">
+                          /{tenant.slug}
+                        </span>
+                        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] font-bold text-amber-300">
+                          {tenant.currency}
+                        </span>
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            tenant.active
+                              ? "bg-emerald-500/20 text-emerald-300"
+                              : "bg-rose-500/20 text-rose-300"
+                          }`}
+                        >
+                          {tenant.active ? "Servicio Activo" : "Suspendido"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {tenant.stats?.ordersCount ?? 0} pedidos •{" "}
+                        {tenant.stats?.batchesCount ?? 0} lotes •{" "}
+                        {tenant.stats?.customersCount ?? 0} clientes •{" "}
+                        {tenant.stats?.usersCount ?? 0} usuarios
+                      </p>
                     </div>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {tenant.stats?.ordersCount ?? 0} pedidos •{" "}
-                      {tenant.stats?.batchesCount ?? 0} lotes •{" "}
-                      {tenant.stats?.customersCount ?? 0} clientes •{" "}
-                      {tenant.stats?.usersCount ?? 0} usuarios
-                    </p>
                   </div>
 
                   {/* Botón maestro para Activar / Suspender el servicio general del Tenant */}

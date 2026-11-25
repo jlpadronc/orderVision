@@ -16,16 +16,24 @@ export const OrderStatusEnum = z.enum([
   "PURCHASED_AT_ORIGIN",
   "IN_TRANSIT",
   "RECEIVED_IN_WAREHOUSE",
+  "MEASUREMENTS_TAKEN",
+  "IN_PRODUCTION",
+  "READY_FOR_FITTING",
+  "FINAL_ADJUSTMENTS",
   "READY_FOR_DELIVERY",
   "COMPLETED",
   "CANCELLED",
 ]);
+
+export const BusinessTypeEnum = z.enum(["IMPORT", "TAILORING", "HYBRID"]);
+export type BusinessType = z.infer<typeof BusinessTypeEnum>;
 
 export const PaymentMethodEnum = z.enum([
   "BINANCE_USDT",
   "BANCOLOMBIA",
   "NEQUI",
   "CASH_USD",
+  "CASH_COP",
   "PAGO_MOVIL_VES",
   "ZINLI",
   "OTHER",
@@ -38,6 +46,22 @@ export type BatchStatusType = z.infer<typeof BatchStatusEnum>;
 export type OrderStatusType = z.infer<typeof OrderStatusEnum>;
 export type PaymentMethodType = z.infer<typeof PaymentMethodEnum>;
 export type CurrencyType = z.infer<typeof CurrencyEnum>;
+
+export const TenantThemeSchema = z.object({
+  primaryColor: z.string().trim().default("#e11d48"),
+  secondaryColor: z.string().trim().default("#9333ea"),
+  accentColor: z.string().trim().optional().default("#f43f5e"),
+  preset: z.string().trim().optional().default("ROSE"),
+});
+
+export type TenantTheme = z.infer<typeof TenantThemeSchema>;
+
+export const DEFAULT_TENANT_THEME: TenantTheme = {
+  primaryColor: "#e11d48",
+  secondaryColor: "#9333ea",
+  accentColor: "#f43f5e",
+  preset: "ROSE",
+};
 
 export const TenantFeaturesSchema = z.object({
   aiVision: z.boolean().default(false),
@@ -53,6 +77,23 @@ export const DEFAULT_FEATURES: TenantFeatures = {
   whatsappButton: true,
   quoteExport: true,
   warehouseVerify: true,
+};
+
+export const TenantWhatsAppConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  phoneNumber: z.string().trim().optional().nullable(),
+  buttonText: z.string().trim().max(80).optional().nullable(),
+  customMessage: z.string().trim().max(1000).optional().nullable(),
+});
+
+export type TenantWhatsAppConfig = z.infer<typeof TenantWhatsAppConfigSchema>;
+
+export const DEFAULT_WHATSAPP_CONFIG: TenantWhatsAppConfig = {
+  enabled: true,
+  phoneNumber: "",
+  buttonText: "Enviar WhatsApp al Cliente",
+  customMessage:
+    "¡Hola *{cliente}*! Te saludamos de *{negocio}* ✨\n\n📋 *Estado y Cotización de tu Pedido #{pedido}*:\n👉 *Estado:* {estado}\n💰 *Total ({moneda}):* {total}\n💵 *Abono registrado:* {abono}\n⏳ *Saldo pendiente:* {saldo}\n\n🔍 *Consulta tu avance y código QR aquí:*\n{link}\n\n¡Gracias por tu confianza!",
 };
 
 export const LoginSchema = z.object({
@@ -77,7 +118,11 @@ export const CreateTenantByAdminSchema = z.object({
     .max(60)
     .regex(/^[a-z0-9-]+$/, "El slug solo puede contener minúsculas, números y guiones"),
   currency: z.enum(["USD", "VES", "COP"]).default("USD"),
-  defaultDepositPct: z.number().min(10).max(100).default(50),
+  defaultDepositPct: z.number().min(0).max(100).default(50),
+  logoUrl: z.string().optional().nullable(),
+  primaryColor: z.string().optional(),
+  secondaryColor: z.string().optional(),
+  preset: z.string().optional(),
   adminName: z.string().trim().optional(),
   adminEmail: z.string().trim().email().optional().or(z.literal("")),
   adminPassword: z.string().optional(),
@@ -98,6 +143,21 @@ export const CreateCustomerSchema = z.object({
     .trim()
     .min(6, "Ingresa un número de WhatsApp válido")
     .max(30),
+  documentId: z.string().trim().max(40).optional().nullable(),
+  instagram: z.string().trim().max(60).optional().nullable(),
+  notes: z.string().trim().max(300).optional().nullable(),
+});
+
+export const UpdateCustomerSchema = z.object({
+  tenantId: z.string().min(1, "tenantId es obligatorio"),
+  customerId: z.string().min(1, "customerId es obligatorio"),
+  fullName: z.string().trim().min(2, "El nombre debe tener al menos 2 caracteres").max(120),
+  phone: z
+    .string()
+    .trim()
+    .min(6, "Ingresa un número de WhatsApp válido")
+    .max(30),
+  documentId: z.string().trim().max(40).optional().nullable(),
   instagram: z.string().trim().max(60).optional().nullable(),
   notes: z.string().trim().max(300).optional().nullable(),
 });
@@ -115,6 +175,7 @@ export const CreateBatchSchema = z.object({
 export const UpdateBatchStatusSchema = z.object({
   tenantId: z.string().min(1, "tenantId es obligatorio"),
   batchId: z.string().min(1, "batchId es obligatorio"),
+  code: z.string().trim().min(2, "El código del lote es obligatorio").max(40).optional(),
   status: BatchStatusEnum.optional(),
   purchaseDate: z.string().optional(),
   name: z.string().trim().optional(),
@@ -140,19 +201,69 @@ export const OrderItemInputSchema = z.object({
   modelVariant: z.string().trim().max(100).nullable().optional(),
   verificationNotes: z.string().trim().max(400).nullable().optional(),
   sourceImageUrl: z.string().nullable().optional(),
+  // Soporte para costura y confección personalizada
+  serviceType: z.string().trim().max(100).nullable().optional(),
+  fabricDetails: z.string().trim().max(300).nullable().optional(),
+  measurements: z.record(z.string(), z.union([z.string(), z.number()])).nullable().optional(),
 });
 
-export const CreateOrderSchema = z.object({
+export const CreateOrderSchema = z
+  .object({
+    tenantId: z.string().min(1, "tenantId es obligatorio"),
+    customOrderId: z
+      .string()
+      .trim()
+      .max(40, "El identificador del pedido no puede exceder 40 caracteres")
+      .optional()
+      .nullable(),
+    batchId: z.string().optional().nullable(),
+    customerId: z.string().min(1, "Debes seleccionar o registrar un cliente"),
+    currency: CurrencyEnum.optional().default("USD"),
+    businessType: BusinessTypeEnum.optional().default("IMPORT"),
+    fittingDate: z.string().optional().nullable(),
+    estimatedDeliveryDate: z.string().optional().nullable(),
+    measurements: z.record(z.string(), z.union([z.string(), z.number()])).nullable().optional(),
+    items: z.array(OrderItemInputSchema).min(1, "El pedido debe tener al menos un producto"),
+    depositPaid: z.boolean().default(true),
+    paymentMethod: PaymentMethodEnum,
+    paymentReference: z.string().trim().max(120).nullable().optional(),
+    receiptImageUrl: z.string().nullable().optional(),
+    generalNotes: z.string().trim().max(500).nullable().optional(),
+  })
+  .superRefine((data, ctx) => {
+    const isCash = data.paymentMethod === "CASH_USD" || data.paymentMethod === "CASH_COP";
+    if (!isCash && (!data.paymentReference || data.paymentReference.trim().length < 2)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["paymentReference"],
+        message: "Ingresa el número de referencia o hash del pago",
+      });
+    }
+  });
+
+export const UpdateOrderSchema = z.object({
   tenantId: z.string().min(1, "tenantId es obligatorio"),
-  batchId: z.string().optional().nullable(),
-  customerId: z.string().min(1, "Debes seleccionar o registrar un cliente"),
-  currency: CurrencyEnum.optional().default("USD"),
-  items: z.array(OrderItemInputSchema).min(1, "El pedido debe tener al menos un producto"),
-  depositPaid: z.boolean().default(true),
-  paymentMethod: PaymentMethodEnum,
-  paymentReference: z.string().trim().min(2, "Ingresa el número de referencia o hash del pago"),
-  receiptImageUrl: z.string().nullable().optional(),
+  orderId: z.string().min(1, "orderId es obligatorio"),
+  batchId: z.string().nullable().optional(),
+  customerId: z.string().min(1, "Debes seleccionar un cliente").optional(),
+  status: OrderStatusEnum.optional(),
+  currency: CurrencyEnum.optional(),
+  businessType: BusinessTypeEnum.optional(),
+  fittingDate: z.string().optional().nullable(),
+  estimatedDeliveryDate: z.string().optional().nullable(),
+  measurements: z.record(z.string(), z.union([z.string(), z.number()])).nullable().optional(),
+  paymentMethod: PaymentMethodEnum.nullable().optional(),
+  paymentReference: z.string().trim().max(120).nullable().optional(),
   generalNotes: z.string().trim().max(500).nullable().optional(),
+  items: z.array(OrderItemInputSchema).min(1, "El pedido debe conservar al menos un producto").optional(),
+});
+
+export const AddOrderStatusEventSchema = z.object({
+  tenantId: z.string().min(1, "tenantId es obligatorio"),
+  orderId: z.string().min(1, "orderId es obligatorio"),
+  status: OrderStatusEnum.optional(),
+  note: z.string().trim().min(1, "La observación o nota de avance es obligatoria").max(500),
+  authorName: z.string().trim().max(100).optional(),
 });
 
 export const VerifyOrderItemSchema = z.object({
@@ -163,23 +274,42 @@ export const VerifyOrderItemSchema = z.object({
   verificationNotes: z.string().trim().max(400).nullable().optional(),
 });
 
-export const SettleFinalPaymentSchema = z.object({
-  tenantId: z.string().min(1, "tenantId es obligatorio"),
-  orderId: z.string().min(1, "orderId es obligatorio"),
-  finalPaymentMethod: PaymentMethodEnum,
-  finalPaymentRef: z.string().trim().min(2, "Ingresa la referencia del pago final"),
-  finalReceiptUrl: z.string().nullable().optional(),
-  markCompleted: z.boolean().default(true),
-});
+export const SettleFinalPaymentSchema = z
+  .object({
+    tenantId: z.string().min(1, "tenantId es obligatorio"),
+    orderId: z.string().min(1, "orderId es obligatorio"),
+    finalPaymentMethod: PaymentMethodEnum,
+    finalPaymentRef: z.string().trim().max(120).nullable().optional(),
+    finalReceiptUrl: z.string().nullable().optional(),
+    markCompleted: z.boolean().default(true),
+  })
+  .superRefine((data, ctx) => {
+    const isCash =
+      data.finalPaymentMethod === "CASH_USD" ||
+      data.finalPaymentMethod === "CASH_COP";
+    if (
+      !isCash &&
+      (!data.finalPaymentRef || data.finalPaymentRef.trim().length < 2)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["finalPaymentRef"],
+        message: "Ingresa la referencia o hash del pago final",
+      });
+    }
+  });
 
 export const TenantSettingsSchema = z.object({
   tenantId: z.string().min(1, "tenantId es obligatorio"),
   name: z.string().trim().min(2, "Nombre de tienda obligatorio").max(100),
   currency: z.enum(["USD", "VES", "COP"]).default("USD"),
-  defaultDepositPct: z.number().min(10).max(100).default(50),
+  defaultDepositPct: z.number().min(0).max(100).default(50),
   settings: z.object({
+    businessType: BusinessTypeEnum.optional().default("IMPORT"),
     logoUrl: z.string().optional().nullable(),
+    theme: TenantThemeSchema.optional(),
     features: TenantFeaturesSchema.optional(),
+    whatsappConfig: TenantWhatsAppConfigSchema.optional(),
     exchangeRates: z.object({
       USD: z.number().positive().default(1),
       VES: z.number().positive().default(46.8),
