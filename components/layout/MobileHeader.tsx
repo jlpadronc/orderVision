@@ -40,8 +40,11 @@ export function MobileHeader({
     router.refresh();
   }
 
-  // Vista sin sesión (pantalla de /login)
+  // Vista sin sesión (En la landing page '/' o '/landing' no duplicar cabecera)
   if (!sessionUser) {
+    if (pathname === "/" || pathname === "/landing") {
+      return null;
+    }
     return (
       <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/95 backdrop-blur-md">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-2.5 sm:px-6">
