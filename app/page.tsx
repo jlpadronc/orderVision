@@ -14,30 +14,34 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const { activeTenant, sessionUser } = await resolveActiveTenant();
 
-  // Si es SuperAdmin, redirigir al panel global
-  if (sessionUser && sessionUser.role === "SUPERADMIN") {
-    redirect("/admin");
-  }
+  // Si el usuario ya está autenticado, NUNCA debe ver la landing page
+  if (sessionUser) {
+    if (sessionUser.role === "SUPERADMIN") {
+      redirect("/admin");
+    }
 
-  // Si hay una sesión activa de tienda/operador, mostrar el dashboard operativo
-  if (activeTenant && sessionUser) {
-    const [batches, allOrders, customers] = await Promise.all([
-      listBatchesByTenant(activeTenant.id),
-      listOrdersByTenant(activeTenant.id),
-      listCustomersByTenant(activeTenant.id),
-    ]);
+    if (activeTenant) {
+      const [batches, allOrders, customers] = await Promise.all([
+        listBatchesByTenant(activeTenant.id),
+        listOrdersByTenant(activeTenant.id),
+        listCustomersByTenant(activeTenant.id),
+      ]);
 
-    const unassignedOrders = allOrders.filter((o) => !o.batchId);
+      const unassignedOrders = allOrders.filter((o) => !o.batchId);
 
-    return (
-      <BatchesDashboardClient
-        tenant={activeTenant}
-        initialBatches={batches}
-        unassignedOrders={unassignedOrders}
-        initialCustomers={customers}
-        userRole={sessionUser.role}
-      />
-    );
+      return (
+        <BatchesDashboardClient
+          tenant={activeTenant}
+          initialBatches={batches}
+          unassignedOrders={unassignedOrders}
+          initialCustomers={customers}
+          userRole={sessionUser.role}
+        />
+      );
+    }
+
+    // Sesión huérfana o sin tenant válido
+    redirect("/login");
   }
 
   // Si es un visitante público o usuario no autenticado, mostrar la Landing Page de OrderVision
