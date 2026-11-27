@@ -136,3 +136,89 @@ export function formatEquivalentSummary(
   return `≈ ${formatMoney(inUsd, "USD")} • ${formatMoney(inCop, "COP")}`;
 }
 
+/**
+ * Formatea una entrada numérica aplicando la máscara según la moneda y formato del país:
+ * - COP: Enteros con separador de miles '.' (ej: 65000 -> "65.000")
+ * - USD: Separador de miles ',' y decimales '.' hasta 2 dígitos (ej: 1250.5 -> "1,250.5")
+ * - VES: Separador de miles '.' y decimales ',' hasta 2 dígitos (ej: 1250,5 -> "1.250,5")
+ */
+export function formatCurrencyInput(
+  rawInput: string | number | null | undefined,
+  currency: CurrencyType | string = "USD"
+): string {
+  if (rawInput === null || rawInput === undefined || rawInput === "") return "";
+  const code = (currency || "USD").toUpperCase();
+  const str = String(rawInput);
+
+  if (code === "COP") {
+    const cleanDigits = str.replace(/\D/g, "");
+    if (!cleanDigits) return "";
+    const num = Number.parseInt(cleanDigits, 10);
+    if (!Number.isFinite(num)) return "";
+    return num.toLocaleString("es-CO");
+  }
+
+  if (code === "VES") {
+    // Si el usuario escribió un punto decimal en lugar de coma, reemplazarlo
+    let sanitized = str.replace(/[^0-9,]/g, "");
+    if (str.includes(".") && !str.includes(",")) {
+      sanitized = str.replace(/[^0-9.]/g, "").replace(".", ",");
+    }
+    const parts = sanitized.split(",");
+    const intDigits = parts[0]?.replace(/\D/g, "") || "";
+    const decDigits = parts.length > 1 ? parts.slice(1).join("").slice(0, 2) : null;
+
+    if (!intDigits && decDigits === null) return "";
+    const intNum = intDigits ? Number.parseInt(intDigits, 10) : 0;
+    const formattedInt = intDigits ? intNum.toLocaleString("es-VE") : "0";
+
+    return decDigits !== null ? `${formattedInt},${decDigits}` : formattedInt;
+  }
+
+  // USD (formato estándar internacional con coma de miles y punto decimal)
+  let sanitized = str.replace(/[^0-9.]/g, "");
+  if (str.includes(",") && !str.includes(".")) {
+    sanitized = str.replace(/[^0-9,]/g, "").replace(",", ".");
+  }
+  const parts = sanitized.split(".");
+  const intDigits = parts[0]?.replace(/\D/g, "") || "";
+  const decDigits = parts.length > 1 ? parts.slice(1).join("").slice(0, 2) : null;
+
+  if (!intDigits && decDigits === null) return "";
+  const intNum = intDigits ? Number.parseInt(intDigits, 10) : 0;
+  const formattedInt = intDigits ? intNum.toLocaleString("en-US") : "0";
+
+  return decDigits !== null ? `${formattedInt}.${decDigits}` : formattedInt;
+}
+
+/**
+ * Parsea el valor con máscara de moneda a un número flotante estándar de JavaScript.
+ */
+export function parseCurrencyInput(
+  displayValue: string | number | null | undefined,
+  currency: CurrencyType | string = "USD"
+): number {
+  if (displayValue === null || displayValue === undefined || displayValue === "") return 0;
+  if (typeof displayValue === "number") return Number.isFinite(displayValue) ? displayValue : 0;
+
+  const code = (currency || "USD").toUpperCase();
+  const str = String(displayValue).trim();
+
+  if (code === "COP") {
+    const cleanDigits = str.replace(/\D/g, "");
+    return cleanDigits ? Number.parseInt(cleanDigits, 10) : 0;
+  }
+
+  if (code === "VES") {
+    // Quitar puntos de miles y sustituir coma decimal por punto
+    const normalized = str.replace(/\./g, "").replace(",", ".");
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  // USD: quitar comas de miles
+  const normalized = str.replace(/,/g, "");
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+

@@ -44,12 +44,14 @@ import {
   convertCurrency,
   formatEquivalentSummary,
   formatMoney,
+  parseCurrencyInput,
 } from "@/lib/utils/currency";
 import {
   exportQuoteAsPng,
   generateQuoteBlob,
 } from "@/lib/utils/quoteImageExporter";
 import { buildOrderWhatsAppMessage, buildWhatsAppUrl } from "@/lib/utils/whatsapp";
+import { MaskedPriceInput } from "@/components/ui/MaskedPriceInput";
 
 export interface CartProductItem {
   localId: string;
@@ -435,7 +437,10 @@ export function SmartCartBuilder({
 
   function handleAddProductSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const parsedPrice = Number.parseFloat(draftPrice);
+    const parsedPrice =
+      typeof draftPrice === "number"
+        ? draftPrice
+        : parseCurrencyInput(draftPrice, orderCurrency);
     if (!draftTitle.trim() || !Number.isFinite(parsedPrice) || parsedPrice <= 0) {
       return;
     }
@@ -1136,23 +1141,20 @@ export function SmartCartBuilder({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="mb-1 block text-[11px] font-semibold text-rose-300">
-                    Precio {businessMode === "TAILORING" ? "de Confección" : "Unitario"} ({draftCurrency})
+                    Precio {businessMode === "TAILORING" ? "de Confección" : "Unitario"} ({orderCurrency})
                   </label>
-                  <input
-                    type="number"
-                    step={draftCurrency === "COP" ? "1" : "0.01"}
-                    min="0.01"
+                  <MaskedPriceInput
+                    currency={orderCurrency}
                     required
-                    placeholder={draftCurrency === "COP" ? "Ej. 65000" : "Ej. 19.50"}
                     value={draftPrice}
-                    onChange={(e) => setDraftPrice(e.target.value)}
+                    onChange={(numericVal, formatted) => setDraftPrice(formatted)}
                     style={{ minHeight: "36px", fontSize: "0.75rem" }}
-                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-bold text-white"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-bold text-white font-mono"
                   />
-                  {draftPrice && Number(draftPrice) > 0 && (
+                  {parseCurrencyInput(draftPrice, orderCurrency) > 0 && (
                     <p className="mt-0.5 text-[10px] text-slate-400">
                       Equivalente: {formatEquivalentSummary(
-                        Number(draftPrice),
+                        parseCurrencyInput(draftPrice, orderCurrency),
                         orderCurrency,
                         rates
                       )}
@@ -1585,19 +1587,18 @@ export function SmartCartBuilder({
                         <label className="block text-[10px] text-rose-300 font-semibold">
                           Precio ({orderCurrency})
                         </label>
-                        <input
-                          type="number"
-                          step={orderCurrency === "COP" ? "1" : "0.01"}
+                        <MaskedPriceInput
+                          currency={orderCurrency}
                           value={item.finalPrice}
-                          onChange={(e) =>
+                          onChange={(numericVal) =>
                             handleUpdateItem(
                               item.localId,
                               "finalPrice",
-                              Number.parseFloat(e.target.value) || 0
+                              numericVal
                             )
                           }
                           style={{ minHeight: "32px", fontSize: "0.75rem" }}
-                          className="w-full rounded-lg border border-rose-500/40 bg-slate-950 px-2 py-1 text-xs font-bold text-white"
+                          className="w-full rounded-lg border border-rose-500/40 bg-slate-950 px-2 py-1 text-xs font-bold text-white font-mono"
                         />
                       </div>
 

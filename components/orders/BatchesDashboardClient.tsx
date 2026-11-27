@@ -56,6 +56,7 @@ import {
 } from "@/lib/utils/whatsapp";
 import { exportQuoteAsPng } from "@/lib/utils/quoteImageExporter";
 import { OrderQrModal } from "./OrderQrModal";
+import { MaskedPriceInput } from "@/components/ui/MaskedPriceInput";
 
 export function formatShortDate(iso: string): string {
   try {
@@ -2325,16 +2326,14 @@ export function BatchesDashboardClient({
                     <label className="block text-[10px] text-slate-400">
                       Precio ({editOrderCurrency})
                     </label>
-                    <input
-                      type="number"
-                      step={editOrderCurrency === "COP" ? "100" : "0.01"}
-                      min={0.01}
+                    <MaskedPriceInput
+                      currency={editOrderCurrency}
                       value={item.finalPrice}
-                      onChange={(e) =>
+                      onChange={(numericVal) =>
                         handleEditOrderItemChange(
                           idx,
                           "finalPrice",
-                          Number(e.target.value) || 0
+                          numericVal
                         )
                       }
                       className="w-full rounded-lg border border-slate-800 bg-slate-900 px-2 py-1 font-mono text-xs text-emerald-300"
