@@ -6,10 +6,12 @@ import {
   AlertCircle,
   Boxes,
   Calendar,
+  CheckCircle2,
   Coins,
   Download,
   FolderPlus,
   Hash,
+  Loader2,
   MessageCircle,
   Package,
   Pencil,
@@ -43,7 +45,10 @@ import {
   formatEquivalentSummary,
   formatMoney,
 } from "@/lib/utils/currency";
-import { exportQuoteAsPng } from "@/lib/utils/quoteImageExporter";
+import {
+  exportQuoteAsPng,
+  generateQuoteBlob,
+} from "@/lib/utils/quoteImageExporter";
 import { buildOrderWhatsAppMessage, buildWhatsAppUrl } from "@/lib/utils/whatsapp";
 
 export interface CartProductItem {
@@ -103,15 +108,13 @@ export function SmartCartBuilder({
   );
   const [orderError, setOrderError] = useState<string | null>(null);
 
-  // Moneda principal del pedido (por defecto toma la moneda configurada en el Tenant: COP o USD)
-  const [orderCurrency, setOrderCurrency] = useState<CurrencyType>(
-    ((tenant.currency?.toUpperCase() as CurrencyType) || "COP")
-  );
+  // Moneda operativa restringida estrictamente a la configuración del Tenant
+  const orderCurrency: CurrencyType =
+    (tenant.currency?.toUpperCase() as CurrencyType) || "USD";
+  const draftCurrency: CurrencyType = orderCurrency;
 
-  // Moneda en la que el operador escribe el precio del producto individual
-  const [draftCurrency, setDraftCurrency] = useState<CurrencyType>(
-    ((tenant.currency?.toUpperCase() as CurrencyType) || "COP")
-  );
+  const [sendingWhatsApp, setSendingWhatsApp] = useState(false);
+  const [whatsAppNotice, setWhatsAppNotice] = useState<string | null>(null);
 
   const [batches, setBatches] = useState<OrderBatchRecord[]>(initialBatches);
   const [selectedBatchId, setSelectedBatchId] = useState<string>(() => {
@@ -218,32 +221,10 @@ export function SmartCartBuilder({
     }
   }, [initialBatches]);
 
-  function handleChangeOrderCurrency(nextCurrency: CurrencyType) {
-    if (nextCurrency === orderCurrency) return;
-    // Convertir automáticamente los ítems que ya estén en el carrito a la nueva moneda del pedido
-    setItems((prev) =>
-      prev.map((item) => ({
-        ...item,
-        finalPrice: convertCurrency(
-          item.finalPrice,
-          orderCurrency,
-          nextCurrency,
-          rates
-        ),
-        originalPrice:
-          item.originalPrice !== null
-            ? convertCurrency(
-                item.originalPrice,
-                orderCurrency,
-                nextCurrency,
-                rates
-              )
-            : null,
-      }))
-    );
-    setOrderCurrency(nextCurrency);
-    setDraftCurrency(nextCurrency);
-  }
+  const totalUnits = useMemo(
+    () => items.reduce((s, i) => s + (Number(i.quantity) || 1), 0),
+    [items]
+  );
 
   const selectedBatch = useMemo(
     () => batches.find((b) => b.id === selectedBatchId) ?? null,
@@ -572,6 +553,113 @@ export function SmartCartBuilder({
     });
   }
 
+  async function handleSendWhatsAppQuote() {
+    if (!selectedCustomer || items.length === 0) return;
+    setSendingWhatsApp(true);
+    setWhatsAppNotice(null);
+    try {
+      const quoteResult = await generateQuoteBlob({
+        tenantName: tenant.name,
+        logoUrl: tenant.settings?.logoUrl,
+        primaryColor: tenant.settings?.theme?.primaryColor,
+        secondaryColor: tenant.settings?.theme?.secondaryColor,
+        customerName: selectedCustomer.fullName,
+        customerPhone: selectedCustomer.phone,
+        batchLabel: selectedBatch
+          ? `${selectedBatch.code} • ${selectedBatch.name} (${formatShortDate(selectedBatch.purchaseDate)})`
+          : null,
+        dateLabel: formatShortDate(new Date().toISOString()),
+        currency: orderCurrency,
+        vesRate,
+        copRate,
+        subtotalUsd: subtotal,
+        depositPct: tenant.defaultDepositPct || 50,
+        depositUsd: depositRequired,
+        items: items.map((item) => ({
+          title: item.title,
+          size: item.size || null,
+          color: item.color || null,
+          quantity: item.quantity,
+          finalPrice: item.finalPrice,
+        })),
+      });
+
+      const captionMsg = buildOrderWhatsAppMessage({
+        tenantName: tenant.name,
+        customerName: selectedCustomer.fullName,
+        orderId: customOrderId.trim() || undefined,
+        batchCode: selectedBatch
+          ? `${selectedBatch.code} (${selectedBatch.name})`
+          : null,
+        currency: orderCurrency,
+        subtotalUsd: subtotal,
+        depositRequiredUsd: depositRequired,
+        balanceDueUsd: Math.max(0, subtotal - depositRequired),
+        vesRate,
+        copRate,
+        itemsCount: totalUnits,
+        statusLabel: `Cotización (${tenant.defaultDepositPct || 50}% Inicial)`,
+        customTemplate: tenant.settings?.whatsappConfig?.customMessage,
+      });
+
+      // 1. En móviles y navegadores compatibles: Web Share API directa con archivo PNG
+      if (
+        quoteResult &&
+        typeof navigator !== "undefined" &&
+        navigator.canShare &&
+        navigator.canShare({ files: [quoteResult.file] })
+      ) {
+        try {
+          await navigator.share({
+            title: `Cotización ${tenant.name}`,
+            text: captionMsg,
+            files: [quoteResult.file],
+          });
+          return;
+        } catch (shareErr) {
+          if ((shareErr as Error)?.name === "AbortError") return;
+        }
+      }
+
+      // 2. Fallback de alta compatibilidad para Desktop:
+      // Copiar la imagen al portapapeles, descargar archivo y abrir chat de WhatsApp
+      if (quoteResult && typeof navigator !== "undefined" && navigator.clipboard) {
+        try {
+          await navigator.clipboard.write([
+            new ClipboardItem({ "image/png": quoteResult.blob }),
+          ]);
+        } catch {
+          // Permisos o formato no admitido por el navegador
+        }
+
+        // Descarga automática de respaldo
+        const link = document.createElement("a");
+        link.download = quoteResult.file.name;
+        link.href = quoteResult.dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+
+      const fullMsg = `${captionMsg}\n\n📸 *Adjunto de Cotización:* Te compartimos la imagen oficial con el desglose de prendas, seña y condiciones.`;
+      const waUrl = buildWhatsAppUrl(selectedCustomer.phone, fullMsg);
+      window.open(waUrl, "_blank");
+
+      setWhatsAppNotice(
+        "📸 ¡Imagen de cotización generada, copiada al portapapeles y descargada! Pégala directamente en el chat de WhatsApp con Ctrl+V."
+      );
+      setTimeout(() => setWhatsAppNotice(null), 9000);
+    } catch (err) {
+      setOrderError(
+        err instanceof Error
+          ? err.message
+          : "No se pudo procesar el envío de la cotización por WhatsApp"
+      );
+    } finally {
+      setSendingWhatsApp(false);
+    }
+  }
+
   const whatsappUrl = useMemo(() => {
     if (!selectedCustomer) return "#";
     const msg = buildOrderWhatsAppMessage({
@@ -717,26 +805,15 @@ export function SmartCartBuilder({
             </button>
           </div>
 
-          {/* Selector rápido de moneda del pedido (COP / USD) */}
-          <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 p-1">
-            <span className="inline-flex items-center gap-1 pl-2 text-[11px] font-semibold text-slate-400">
-              <Coins className="h-3.5 w-3.5 text-amber-400" />
-              Moneda:
+          {/* Moneda Operativa del Negocio (Fijada en settings del Tenant) */}
+          <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900 px-3 py-1.5">
+            <Coins className="h-3.5 w-3.5 text-amber-400" />
+            <span className="text-xs font-semibold text-slate-300">
+              Moneda: <strong className="text-white font-bold">{orderCurrency}</strong>
             </span>
-            {(["COP", "USD"] as const).map((curr) => (
-              <button
-                key={curr}
-                type="button"
-                onClick={() => handleChangeOrderCurrency(curr)}
-                className={`rounded-lg px-3 py-1 text-xs font-bold transition-colors ${
-                  orderCurrency === curr
-                    ? "btn-brand-gradient text-white shadow-xs"
-                    : "text-slate-400 hover:text-white"
-                }`}
-              >
-                {curr === "COP" ? "COP ($)" : "USD ($)"}
-              </button>
-            ))}
+            <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-medium text-slate-400">
+              Configurada en Tenant
+            </span>
           </div>
         </div>
       </div>
@@ -993,21 +1070,10 @@ export function SmartCartBuilder({
                   </>
                 )}
               </span>
-              <div className="flex items-center gap-1 rounded-lg bg-slate-950 p-0.5 border border-slate-800">
-                {(["COP", "USD"] as const).map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setDraftCurrency(c)}
-                    className={`rounded-md px-2 py-0.5 text-[10px] font-bold transition-colors ${
-                      draftCurrency === c
-                        ? "bg-rose-500/25 text-rose-300 border border-rose-500/40"
-                        : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    Precio en {c}
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 rounded-lg bg-slate-950 px-2 py-0.5 border border-slate-800">
+                <span className="text-[10px] font-bold text-amber-300">
+                  Moneda: {orderCurrency}
+                </span>
               </div>
             </div>
 
@@ -1085,21 +1151,11 @@ export function SmartCartBuilder({
                   />
                   {draftPrice && Number(draftPrice) > 0 && (
                     <p className="mt-0.5 text-[10px] text-slate-400">
-                      {draftCurrency !== orderCurrency
-                        ? `Se agregará como ${formatMoney(
-                            convertCurrency(
-                              Number(draftPrice),
-                              draftCurrency,
-                              orderCurrency,
-                              rates
-                            ),
-                            orderCurrency
-                          )}`
-                        : formatEquivalentSummary(
-                            Number(draftPrice),
-                            draftCurrency,
-                            rates
-                          )}
+                      Equivalente: {formatEquivalentSummary(
+                        Number(draftPrice),
+                        orderCurrency,
+                        rates
+                      )}
                     </p>
                   )}
                 </div>
@@ -1389,12 +1445,12 @@ export function SmartCartBuilder({
             </form>
           </section>
 
-          {/* 4. Resumen de Totales + Exportar Cotización PNG + WhatsApp + Confirmar 50% */}
+          {/* 4. Resumen de Totales + Exportar Cotización PNG + WhatsApp + Confirmar */}
           <section className="rounded-2xl border border-slate-700/90 bg-slate-900 p-4 shadow-xl space-y-3">
             <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
               <div>
                 <p className="text-xs text-slate-400">
-                  Subtotal ({items.reduce((s, i) => s + i.quantity, 0)} prendas)
+                  Subtotal ({totalUnits} {totalUnits === 1 ? "prenda" : "prendas"})
                 </p>
                 <p className="text-lg font-bold text-white">
                   {formatMoney(subtotal, orderCurrency)}
@@ -1405,7 +1461,7 @@ export function SmartCartBuilder({
               </div>
               <div className="text-right">
                 <p className="text-xs font-semibold text-emerald-300">
-                  Seña ({tenant.defaultDepositPct}%)
+                  Seña ({tenant.defaultDepositPct ?? 50}%)
                 </p>
                 <p className="text-xl font-extrabold text-emerald-400">
                   {formatMoney(depositRequired, orderCurrency)}
@@ -1430,17 +1486,28 @@ export function SmartCartBuilder({
               )}
 
               {features.whatsappButton && selectedCustomer && (
-                <a
-                  href={whatsappUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25"
+                <button
+                  type="button"
+                  disabled={sendingWhatsApp || items.length === 0}
+                  onClick={handleSendWhatsAppQuote}
+                  className="inline-flex h-10 items-center justify-center gap-1.5 rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 text-xs font-bold text-emerald-300 hover:bg-emerald-500/25 disabled:opacity-40"
                 >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  Enviar WhatsApp
-                </a>
+                  {sendingWhatsApp ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                  ) : (
+                    <MessageCircle className="h-3.5 w-3.5" />
+                  )}
+                  {sendingWhatsApp ? "Generando..." : "Enviar Cotización WA"}
+                </button>
               )}
             </div>
+
+            {whatsAppNotice && (
+              <div className="flex items-start gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/15 p-2.5 text-xs font-medium text-emerald-200">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+                <span>{whatsAppNotice}</span>
+              </div>
+            )}
 
             <button
               type="button"
@@ -1452,7 +1519,7 @@ export function SmartCartBuilder({
               onClick={() => setDrawerOpen(true)}
               className="flex h-11 w-full items-center justify-center gap-2 rounded-xl btn-brand-gradient px-4 text-sm font-bold shadow-lg disabled:opacity-40"
             >
-              Confirmar y Cobrar {tenant.defaultDepositPct}% ({formatMoney(depositRequired, orderCurrency)})
+              Confirmar y Cobrar {tenant.defaultDepositPct ?? 50}% ({formatMoney(depositRequired, orderCurrency)})
             </button>
           </section>
         </div>
@@ -1461,7 +1528,7 @@ export function SmartCartBuilder({
         <div className="space-y-2.5 lg:col-span-7">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Productos en el Pedido ({items.length}) • Moneda: {orderCurrency}
+              Prendas en el Pedido ({totalUnits} {totalUnits === 1 ? "prenda" : "prendas"}) • Moneda: {orderCurrency}
             </h2>
           </div>
 

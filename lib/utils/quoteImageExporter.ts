@@ -32,11 +32,16 @@ export interface QuoteExportOptions {
   paymentSummary?: string;
 }
 
+export interface GeneratedQuoteResult {
+  blob: Blob;
+  file: File;
+  dataUrl: string;
+}
+
 /**
- * Genera y descarga una imagen PNG nítida con la cotización formal para el cliente
- * utilizando HTML5 Canvas nativo, soportando múltiples monedas (COP, USD, VES).
+ * Renderiza el canvas con la cotización formal y términos del negocio.
  */
-export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> {
+export async function renderQuoteCanvas(opts: QuoteExportOptions): Promise<HTMLCanvasElement | null> {
   const currency = (opts.currency || "USD").toUpperCase();
   const rates = {
     USD: 1,
@@ -47,13 +52,14 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
   const width = 760;
   const itemRowHeight = 56;
   const maxItemsShown = Math.min(opts.items.length, 15);
-  const height = 400 + maxItemsShown * itemRowHeight + 165;
+  // Altura base + items + caja financiera + caja de política de retiro
+  const height = 400 + maxItemsShown * itemRowHeight + 165 + 84;
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) return null;
 
   // Fondo general oscuro elegante
   ctx.fillStyle = "#0b0f19";
@@ -273,14 +279,72 @@ export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> 
     ctx.fillText(opts.paymentSummary.slice(0, 48), width - 78, y + 116);
   }
 
-  // Descargar PNG
+  // Caja de Términos y Política de Retiro de Prenda
+  y += 148;
+  ctx.fillStyle = "#1e1b2e";
+  ctx.strokeStyle = "#4338ca";
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.roundRect(56, y, width - 112, 68, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f59e0b";
+  ctx.font = "bold 11px system-ui, -apple-system, sans-serif";
+  ctx.fillText("⚠️ POLÍTICA DE RETIRO Y CONDICIONES:", 74, y + 22);
+
+  ctx.fillStyle = "#e2e8f0";
+  ctx.font = "500 11px system-ui, -apple-system, sans-serif";
+  ctx.fillText(
+    "El plazo de retiro de la prenda luego de notificar su retiro será de un (1) mes.",
+    74,
+    y + 39
+  );
+  ctx.fillText(
+    "Si no lo retira, no se devuelve el abono inicial y tampoco podrá retirar la prenda.",
+    74,
+    y + 55
+  );
+
+  return canvas;
+}
+
+/**
+ * Genera el Blob y File de la imagen PNG de la cotización para descarga o envío directo.
+ */
+export async function generateQuoteBlob(
+  opts: QuoteExportOptions
+): Promise<GeneratedQuoteResult | null> {
+  const canvas = await renderQuoteCanvas(opts);
+  if (!canvas) return null;
+
   const dataUrl = canvas.toDataURL("image/png");
-  const link = document.createElement("a");
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/png")
+  );
+  if (!blob) return null;
+
   const safeName = (opts.customerName || "cliente")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-");
-  link.download = `cotizacion-${safeName}-${Date.now().toString().slice(-4)}.png`;
-  link.href = dataUrl;
+  const fileName = `cotizacion-${safeName}-${Date.now().toString().slice(-4)}.png`;
+  const file = new File([blob], fileName, { type: "image/png" });
+
+  return { blob, file, dataUrl };
+}
+
+/**
+ * Genera y descarga una imagen PNG nítida con la cotización formal para el cliente
+ * utilizando HTML5 Canvas nativo, soportando múltiples monedas (COP, USD, VES).
+ */
+export async function exportQuoteAsPng(opts: QuoteExportOptions): Promise<void> {
+  const result = await generateQuoteBlob(opts);
+  if (!result) return;
+
+  const link = document.createElement("a");
+  link.download = result.file.name;
+  link.href = result.dataUrl;
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);

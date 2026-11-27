@@ -95,7 +95,32 @@ export function DepositPaymentDrawer({
 }: DepositPaymentDrawerProps) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const [depositPaid, setDepositPaid] = useState(true);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>("BINANCE_USDT");
+
+  const availablePaymentMethods = React.useMemo(() => {
+    const paymentAccounts = tenant.settings?.paymentAccounts;
+    if (!paymentAccounts || Object.keys(paymentAccounts).length === 0) {
+      return PAYMENT_METHOD_OPTIONS;
+    }
+    const filtered = PAYMENT_METHOD_OPTIONS.filter((option) => {
+      const acc = paymentAccounts[option.value];
+      return acc ? acc.enabled !== false : false;
+    });
+    return filtered.length > 0 ? filtered : PAYMENT_METHOD_OPTIONS;
+  }, [tenant.settings?.paymentAccounts]);
+
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>(
+    () => availablePaymentMethods[0]?.value || "CASH_USD"
+  );
+
+  useEffect(() => {
+    if (
+      availablePaymentMethods.length > 0 &&
+      !availablePaymentMethods.some((m) => m.value === paymentMethod)
+    ) {
+      setPaymentMethod(availablePaymentMethods[0].value);
+    }
+  }, [availablePaymentMethods, paymentMethod]);
+
   const [paymentReference, setPaymentReference] = useState("");
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
@@ -202,7 +227,7 @@ export function DepositPaymentDrawer({
             Cierre y Confirmación de Seña
           </span>
           <h2 id="deposit-drawer-title" className="text-lg font-bold text-white">
-            Liquidación Inicial (50%)
+            Liquidación Inicial ({tenant.defaultDepositPct ?? 50}%)
           </h2>
         </div>
         <button
@@ -225,7 +250,7 @@ export function DepositPaymentDrawer({
           <div className="mt-2 flex items-baseline justify-between border-t border-slate-800/80 pt-3">
             <div>
               <p className="text-xs font-medium text-slate-300">
-                Seña Requerida ({tenant.defaultDepositPct}%)
+                Seña Requerida ({tenant.defaultDepositPct ?? 50}%)
               </p>
               <p className="text-[11px] text-slate-400">
                 {eqSummary}
@@ -237,7 +262,7 @@ export function DepositPaymentDrawer({
           </div>
         </div>
 
-        {/* Interruptor de Verificación [✓ 50% de Seña Pagado] */}
+        {/* Interruptor de Verificación [✓ Seña Pagada] */}
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
           <label
             htmlFor="deposit-paid-checkbox"
@@ -245,7 +270,7 @@ export function DepositPaymentDrawer({
           >
             <div>
               <span className="block text-sm font-bold text-emerald-200">
-                [✓ 50% de Seña Pagado]
+                [✓ {tenant.defaultDepositPct ?? 50}% de Seña Pagado]
               </span>
               <span className="block text-xs text-emerald-300/80">
                 Cambia el estado a CONFIRMED_DEPOSIT_PAID al guardar
@@ -262,13 +287,13 @@ export function DepositPaymentDrawer({
           </label>
         </div>
 
-        {/* Selector de Métodos de Pago (5 opciones -> radio buttons visibles según modern-web-guidance) */}
+        {/* Selector de Métodos de Pago configurados en el Tenant */}
         <fieldset className="space-y-2.5">
           <legend className="text-sm font-semibold text-slate-200">
             Método de Pago Recibido *
           </legend>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {PAYMENT_METHOD_OPTIONS.map((option) => {
+            {availablePaymentMethods.map((option) => {
               const selected = paymentMethod === option.value;
               return (
                 <label

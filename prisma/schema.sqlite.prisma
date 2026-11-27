@@ -42,6 +42,7 @@ enum PaymentMethod {
   BANCOLOMBIA
   NEQUI
   CASH_USD
+  CASH_COP
   PAGO_MOVIL_VES
   ZINLI
   OTHER

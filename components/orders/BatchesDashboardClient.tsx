@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock,
+  Coins,
   Download,
   FolderPlus,
   ListFilter,
@@ -2176,32 +2177,14 @@ export function BatchesDashboardClient({
 
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-amber-300">
-                Moneda del Pedido
+              <label className="mb-1 block text-xs font-semibold text-slate-300">
+                Moneda Operativa
               </label>
-              <select
-                value={editOrderCurrency}
-                onChange={(e) => {
-                  const nextCurr = e.target.value as CurrencyType;
-                  setEditOrderItems((prev) =>
-                    prev.map((it) => ({
-                      ...it,
-                      finalPrice: convertCurrency(
-                        it.finalPrice,
-                        editOrderCurrency,
-                        nextCurr,
-                        rates
-                      ),
-                    }))
-                  );
-                  setEditOrderCurrency(nextCurr);
-                }}
-                className="w-full rounded-xl border border-amber-500/40 bg-slate-950 px-3 py-2 text-xs font-bold text-amber-200"
-              >
-                <option value="COP">COP ($ Pesos)</option>
-                <option value="USD">USD ($ Dólares)</option>
-                <option value="VES">VES (Bs.)</option>
-              </select>
+              <div className="flex h-[38px] items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-950 px-3 text-xs font-bold text-white">
+                <Coins className="h-3.5 w-3.5 text-amber-400" />
+                <span>{editOrderCurrency}</span>
+                <span className="text-[10px] font-normal text-slate-400">(Fijada por Tenant)</span>
+              </div>
             </div>
 
             <div>
