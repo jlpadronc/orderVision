@@ -1499,12 +1499,44 @@ export async function updateOrderForTenant(
       balanceDue = 0;
     }
 
+    let nextStatusHistory = existing.statusHistory;
+    if (nextStatus !== existing.status) {
+      let currentHistory: OrderStatusEvent[] = [];
+      if (existing.statusHistory) {
+        if (typeof existing.statusHistory === "string") {
+          try {
+            currentHistory = JSON.parse(existing.statusHistory);
+          } catch {
+            currentHistory = [];
+          }
+        } else if (Array.isArray(existing.statusHistory)) {
+          currentHistory = existing.statusHistory as unknown as OrderStatusEvent[];
+        }
+      }
+
+      const orderBusinessType =
+        (input.businessType || existing.businessType || "IMPORT") as BusinessType;
+      const autoNote = getDefaultStatusNote(nextStatus, orderBusinessType);
+      const autoEvent: OrderStatusEvent = {
+        id: `ev-${crypto.randomUUID().slice(0, 8)}`,
+        status: nextStatus,
+        label: getStatusLabelSpanish(nextStatus, orderBusinessType),
+        note: autoNote,
+        createdAt: new Date().toISOString(),
+        authorName: "Actualización de Estado",
+      };
+      nextStatusHistory = JSON.stringify([autoEvent, ...currentHistory]);
+    }
+
     await tx.order.update({
       where: { id: input.orderId },
       data: {
         ...(input.batchId !== undefined ? { batchId: input.batchId } : {}),
         ...(input.customerId ? { customerId: input.customerId } : {}),
         status: nextStatus,
+        ...(nextStatus !== existing.status
+          ? { statusHistory: nextStatusHistory }
+          : {}),
         currency: nextCurrency,
         ...(input.businessType !== undefined ? { businessType: input.businessType } : {}),
         ...(input.fittingDate !== undefined
@@ -1595,11 +1627,48 @@ export async function verifyOrderItemForTenant(
   });
 
   if (currentOrder && currentOrder.status !== "COMPLETED") {
+    const nextStatus: OrderStatusType = allVerified
+      ? "READY_FOR_DELIVERY"
+      : "RECEIVED_IN_WAREHOUSE";
+    let nextStatusHistory = currentOrder.statusHistory;
+
+    if (nextStatus !== currentOrder.status) {
+      let currentHistory: OrderStatusEvent[] = [];
+      if (currentOrder.statusHistory) {
+        if (typeof currentOrder.statusHistory === "string") {
+          try {
+            currentHistory = JSON.parse(currentOrder.statusHistory);
+          } catch {
+            currentHistory = [];
+          }
+        } else if (Array.isArray(currentOrder.statusHistory)) {
+          currentHistory = currentOrder.statusHistory as unknown as OrderStatusEvent[];
+        }
+      }
+
+      const orderBusinessType = (currentOrder.businessType || "IMPORT") as BusinessType;
+      const autoNote = allVerified
+        ? "Todos los productos del pedido han sido verificados físicamente en almacén. Pedido listo para entrega."
+        : "Recepción e inspección física parcial en almacén.";
+      const autoEvent: OrderStatusEvent = {
+        id: `ev-${crypto.randomUUID().slice(0, 8)}`,
+        status: nextStatus,
+        label: getStatusLabelSpanish(nextStatus, orderBusinessType),
+        note: autoNote,
+        createdAt: new Date().toISOString(),
+        authorName: "Almacén / Control de Calidad",
+      };
+      nextStatusHistory = JSON.stringify([autoEvent, ...currentHistory]);
+    }
+
     await prisma.order.update({
       where: { id: input.orderId },
       data: {
-        status: allVerified ? "READY_FOR_DELIVERY" : "RECEIVED_IN_WAREHOUSE",
-      },
+        status: nextStatus,
+        ...(nextStatus !== currentOrder.status
+          ? { statusHistory: nextStatusHistory }
+          : {}),
+      } as any,
     });
   }
 
@@ -1616,6 +1685,47 @@ export async function verifyOrderItemForTenant(
 export async function settleFinalPaymentForTenant(
   input: z.infer<typeof SettleFinalPaymentSchema>
 ): Promise<OrderRecord> {
+  const existing = await prisma.order.findFirst({
+    where: { id: input.orderId, tenantId: input.tenantId },
+  });
+  if (!existing) {
+    throw new Error("Orden no encontrada en este Tenant.");
+  }
+
+  const nextStatus: OrderStatusType = input.markCompleted
+    ? "COMPLETED"
+    : "READY_FOR_DELIVERY";
+  let nextStatusHistory = existing.statusHistory;
+
+  if (nextStatus !== existing.status) {
+    let currentHistory: OrderStatusEvent[] = [];
+    if (existing.statusHistory) {
+      if (typeof existing.statusHistory === "string") {
+        try {
+          currentHistory = JSON.parse(existing.statusHistory);
+        } catch {
+          currentHistory = [];
+        }
+      } else if (Array.isArray(existing.statusHistory)) {
+        currentHistory = existing.statusHistory as unknown as OrderStatusEvent[];
+      }
+    }
+
+    const orderBusinessType = (existing.businessType || "IMPORT") as BusinessType;
+    const autoNote = input.markCompleted
+      ? "Pago final recibido y liquidado. Pedido entregado y completado exitosamente."
+      : "Liquidación final registrada. Listo para retiro o entrega al cliente.";
+    const autoEvent: OrderStatusEvent = {
+      id: `ev-${crypto.randomUUID().slice(0, 8)}`,
+      status: nextStatus,
+      label: getStatusLabelSpanish(nextStatus, orderBusinessType),
+      note: autoNote,
+      createdAt: new Date().toISOString(),
+      authorName: "Caja / Cobro",
+    };
+    nextStatusHistory = JSON.stringify([autoEvent, ...currentHistory]);
+  }
+
   await prisma.order.updateMany({
     where: {
       id: input.orderId,
@@ -1627,8 +1737,11 @@ export async function settleFinalPaymentForTenant(
       finalPaymentMethod: input.finalPaymentMethod,
       finalPaymentRef: input.finalPaymentRef,
       finalReceiptUrl: input.finalReceiptUrl ?? null,
-      status: input.markCompleted ? "COMPLETED" : "READY_FOR_DELIVERY",
-    },
+      status: nextStatus,
+      ...(nextStatus !== existing.status
+        ? { statusHistory: nextStatusHistory }
+        : {}),
+    } as any,
   });
   const updated = await getOrderByTenantAndId(input.tenantId, input.orderId);
   if (!updated) {
@@ -1739,6 +1852,62 @@ export function getStatusLabelSpanish(
       return "Cancelado";
     default:
       return status;
+  }
+}
+
+/**
+ * Devuelve una descripción detallada por defecto según el estado y tipo de negocio
+ * para registrar automáticamente en la bitácora cuando se cambia el estado.
+ */
+export function getDefaultStatusNote(
+  status: OrderStatusType,
+  businessType: BusinessType = "IMPORT"
+): string {
+  if (businessType === "TAILORING") {
+    switch (status) {
+      case "DRAFT":
+        return "Presupuesto inicial creado. En espera de confirmación y toma de medidas del cliente.";
+      case "CONFIRMED_DEPOSIT_PAID":
+        return "Seña inicial registrada. Orden confirmada e ingresada para preparación de materiales y patronaje.";
+      case "MEASUREMENTS_TAKEN":
+        return "Toma de medidas completada y registrada en ficha técnica. Se da inicio a patronaje y corte de telas.";
+      case "IN_PRODUCTION":
+        return "Prenda en proceso de confección activa, costura y ensamblaje en taller.";
+      case "READY_FOR_FITTING":
+        return "Prenda lista para sesión de prueba y entalle. Se convoca al cliente para ajustes.";
+      case "FINAL_ADJUSTMENTS":
+        return "Realizando ajustes finos de costura, dobladillos y terminaciones tras la prueba.";
+      case "READY_FOR_DELIVERY":
+        return "Confección y planchado finalizados. Prenda lista en tienda para retiro o despacho.";
+      case "COMPLETED":
+        return "Prenda entregada a satisfacción del cliente y saldo restante 100% liquidado.";
+      case "CANCELLED":
+        return "Orden de confección cancelada.";
+      default:
+        return `Estado actualizado a: ${getStatusLabelSpanish(status, businessType)}.`;
+    }
+  }
+
+  // IMPORT / RETAIL
+  switch (status) {
+    case "DRAFT":
+      return "Borrador de pedido registrado en el sistema.";
+    case "CONFIRMED_DEPOSIT_PAID":
+      return "Abono inicial registrado. Pedido confirmado y listo para gestión de compra en origen.";
+    case "PURCHASED_AT_ORIGIN":
+      return "Mercancía adquirida con el proveedor en origen. En espera de consolidación y despacho.";
+    case "IN_TRANSIT":
+      return "Carga despachada y en tránsito logístico hacia nuestro almacén central.";
+    case "RECEIVED_IN_WAREHOUSE":
+      return "Mercancía recibida en almacén central. Iniciando inspección física, conteo y cotejo.";
+    case "READY_FOR_DELIVERY":
+      return "Pedido verificado y embalado. Listo para retiro en sucursal o despacho al cliente.";
+    case "COMPLETED":
+      return "Pedido entregado con éxito al cliente y pago final liquidado.";
+    case "CANCELLED":
+      return "Pedido cancelado.";
+    default:
+      return `Estado actualizado a: ${getStatusLabelSpanish(status, businessType)}.`;
   }
 }
 

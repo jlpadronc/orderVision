@@ -2199,16 +2199,39 @@ export function BatchesDashboardClient({
                 }
                 className="w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-white"
               >
-                <option value="DRAFT">Borrador</option>
-                <option value="CONFIRMED_DEPOSIT_PAID">
-                  Por Confirmar (50% Abonado)
-                </option>
-                <option value="PURCHASED_AT_ORIGIN">Comprado en Origen</option>
-                <option value="IN_TRANSIT">En Tránsito</option>
-                <option value="RECEIVED_IN_WAREHOUSE">En Almacén</option>
-                <option value="READY_FOR_DELIVERY">Listo para Entregar</option>
-                <option value="COMPLETED">Culminado</option>
-                <option value="CANCELLED">Cancelado</option>
+                {editingOrder?.businessType === "TAILORING" ||
+                tenant.settings?.businessType === "TAILORING" ? (
+                  <>
+                    <option value="DRAFT">Borrador / Presupuesto</option>
+                    <option value="CONFIRMED_DEPOSIT_PAID">
+                      Seña Abonada (Confirmado)
+                    </option>
+                    <option value="MEASUREMENTS_TAKEN">
+                      Medidas Listas / Patronaje
+                    </option>
+                    <option value="IN_PRODUCTION">En Confección / Costura</option>
+                    <option value="READY_FOR_FITTING">
+                      Listo para Prueba (Fitting)
+                    </option>
+                    <option value="FINAL_ADJUSTMENTS">En Ajustes Finales</option>
+                    <option value="READY_FOR_DELIVERY">Listo para Entregar</option>
+                    <option value="COMPLETED">Culminado (Entregado)</option>
+                    <option value="CANCELLED">Cancelado</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="DRAFT">Borrador</option>
+                    <option value="CONFIRMED_DEPOSIT_PAID">
+                      Por Confirmar (50% Abonado)
+                    </option>
+                    <option value="PURCHASED_AT_ORIGIN">Comprado en Origen</option>
+                    <option value="IN_TRANSIT">En Tránsito</option>
+                    <option value="RECEIVED_IN_WAREHOUSE">En Almacén</option>
+                    <option value="READY_FOR_DELIVERY">Listo para Entregar</option>
+                    <option value="COMPLETED">Culminado</option>
+                    <option value="CANCELLED">Cancelado</option>
+                  </>
+                )}
               </select>
             </div>
 
